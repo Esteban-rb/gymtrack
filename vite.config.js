@@ -1,10 +1,15 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import pkg from './package.json';
 
 // base './' so the build works on GitHub Pages (project subpath) and locally
 export default defineConfig({
   base: './',
+  define: {
+    // shown in Settings so the user can tell whether the installed PWA has updated
+    __APP_VERSION__: JSON.stringify('v' + pkg.version),
+  },
   plugins: [
     react(),
     VitePWA({

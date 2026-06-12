@@ -54,22 +54,23 @@ export default function SettingsScreen() {
     const isExcel = /\.xlsx?$/i.test(file.name);
     try {
       if (isExcel) {
+        setImportMsg('Importing ' + file.name + '…');
         const { counts, affected } = await importXLSX(file);
         await store.init();
         // recompute baselines/PRs/medals for everything the file touched, silently
         for (const id of affected) await store.refreshPR(id);
         store.dismissMedal();
-        setImportMsg(`Imported ${counts.sets} sets · ${counts.workouts} workouts · ${counts.exercises} new exercises` + (counts.skipped ? ` · ${counts.skipped} duplicates skipped` : '') + ' ✓');
+        setImportMsg(`Imported ${counts.sets} sets · ${counts.workouts} workouts · ${counts.exercises} new exercises` + (counts.skipped ? ` · ${counts.skipped} duplicates skipped` : '') + ' ✓ — see History & Records');
       } else {
         if (!window.confirm('Importing a JSON backup replaces ALL current data. Continue?')) return;
+        setImportMsg('Importing ' + file.name + '…');
         await importJSON(file);
         await store.init();
         setImportMsg('Backup restored ✓');
       }
     } catch (err) {
-      setImportMsg('Import failed: ' + err.message);
+      setImportMsg('Import failed: ' + err.message); // stays on screen until the next import attempt
     }
-    setTimeout(() => setImportMsg(null), 6000);
   };
 
   return (
@@ -169,8 +170,9 @@ export default function SettingsScreen() {
           <button className="gt-btn gt-btn-ghost" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={() => fileRef.current?.click()}><GIcon name="upload" size={16} />Import</button>
         </div>
         <input ref={fileRef} type="file" accept=".json,.xlsx,.xls,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style={{ display: 'none' }} onChange={onImportFile} />
-        {importMsg ? <div className="gt-sub" style={{ marginTop: 10, color: importMsg.includes('✓') ? 'var(--success)' : 'var(--accent)' }}>{importMsg}</div> : null}
+        {importMsg ? <div className="gt-sub" style={{ marginTop: 10, color: importMsg.includes('✓') ? 'var(--success)' : importMsg.includes('…') ? 'var(--text-2)' : 'var(--accent)' }}>{importMsg}</div> : null}
       </div>
+      <div className="gt-micro" style={{ textAlign: 'center', marginTop: 18 }}>GymTrack {typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev'}</div>
 
       {/* Edit exercise */}
       <Sheet open={!!editingEx} onClose={() => setEditingEx(null)} title="Edit exercise">
