@@ -1,0 +1,7 @@
+node_modules/
+dist/
+# Artefactos de capturas de prueba
+smoke-*.png
+_shot-*.png
+# Artefactos de Claude Code
+skills-lock.json
