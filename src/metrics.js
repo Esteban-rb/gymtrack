@@ -13,6 +13,17 @@ export function buildLogs(workouts, setsByWorkout, periodId, exMap) {
       name: (exMap[en.exerciseId] || {}).name || en.exerciseId,
       sets: sets.filter((s) => s.exerciseId === en.exerciseId).sort((a, b) => a.n - b.n),
     }));
+    // sets logged for exercises no longer in the plan (e.g. after switching day) still count
+    const inPlan = new Set(w.entries.map((en) => en.exerciseId));
+    for (const s of sets) {
+      if (inPlan.has(s.exerciseId)) continue;
+      inPlan.add(s.exerciseId);
+      exercises.push({
+        id: s.exerciseId,
+        name: (exMap[s.exerciseId] || {}).name || s.exerciseId,
+        sets: sets.filter((x) => x.exerciseId === s.exerciseId).sort((a, b) => a.n - b.n),
+      });
+    }
     logs[w.week] = logs[w.week] || {};
     logs[w.week][w.dayKey] = { finished: w.finished, workoutId: w.id, block: w.block, date: w.date, exercises };
   }
@@ -64,6 +75,19 @@ export function bestSet(logs, exId, maxWeek) {
         }
       }
     }
+  }
+  return best;
+}
+
+/** Most recent previous session with this exercise, across ALL periods (reference + overload
+ *  base + prefill). Imported/archived history counts too. */
+export function lastSetsGlobal(workouts, setsByWorkout, exId, beforeDate) {
+  let best = null;
+  for (const w of workouts) {
+    if (w.date >= beforeDate) continue;
+    const sets = (setsByWorkout[w.id] || []).filter((s) => s.exerciseId === exId).sort((a, b) => a.n - b.n);
+    if (!sets.length) continue;
+    if (!best || w.date > best.date) best = { date: w.date, sets };
   }
   return best;
 }

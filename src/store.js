@@ -62,6 +62,7 @@ export const useStore = create((set, get) => ({
   },
 
   addBodyweight: async (kg, date = isoDate()) => {
+    await db.bodyweightLog.where('date').equals(date).delete(); // re-logging a day replaces it
     const id = await db.bodyweightLog.add({ date, kg });
     const bodyweight = [...get().bodyweight.filter((b) => b.date !== date), { id, date, kg }].sort((a, b) => a.date.localeCompare(b.date));
     set({ bodyweight });
@@ -139,20 +140,15 @@ export const useStore = create((set, get) => ({
     return w;
   },
 
-  /** Override today's plan with another day's template. Keeps entries that already have sets. */
+  /** Override today's plan with another day's template. Entries become exactly that plan
+   *  (no merging); sets already logged for other exercises stay counted via buildLogs. */
   overrideToday: async (templateDay) => {
     const { templates } = get();
     const existing = get().todayWorkout();
     if (!existing) return get().createWorkout(templateDay);
     const tpl = templates[templateDay];
     if (!tpl) return existing;
-    const sets = get().setsByWorkout[existing.id] || [];
-    const withSets = existing.entries.filter((en) => sets.some((s) => s.exerciseId === en.exerciseId));
-    const merged = [...withSets];
-    for (const exerciseId of tpl.exerciseIds) {
-      if (!merged.some((en) => en.exerciseId === exerciseId)) merged.push({ exerciseId });
-    }
-    const w = { ...existing, templateDay, block: tpl.block, entries: merged };
+    const w = { ...existing, templateDay, block: tpl.block, entries: tpl.exerciseIds.map((exerciseId) => ({ exerciseId })) };
     await db.workouts.put(w);
     set({ workouts: get().workouts.map((x) => (x.id === w.id ? w : x)) });
     return w;

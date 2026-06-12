@@ -1,8 +1,8 @@
 // GymTrack — Today: auto-loaded day plan, quick set logging, overload hints, finish celebration.
 import React, { useMemo, useState } from 'react';
 import { useStore } from '../store.js';
-import { buildLogs, dayVolume, lastSets } from '../metrics.js';
-import { fmtWeight, suggestOverload, splitUnit, weekOfPeriod, dayKeyOf, DAY_KEYS } from '../calc.js';
+import { buildLogs, dayVolume, lastSetsGlobal } from '../metrics.js';
+import { fmtWeight, suggestOverload, splitUnit, weekOfPeriod, dayKeyOf, isoDate, DAY_KEYS } from '../calc.js';
 import { GIcon, Stepper, UnitChips, Sheet, Confetti, EmptyState } from '../components.jsx';
 
 const haptic = () => { try { navigator.vibrate && navigator.vibrate(12); } catch { /* unsupported */ } };
@@ -168,6 +168,7 @@ export default function TodayScreen() {
   const [swapIdx, setSwapIdx] = useState(null);
   const [swapQuery, setSwapQuery] = useState('');
   const [dayPicker, setDayPicker] = useState(false);
+  const [previewDay, setPreviewDay] = useState(null);
   const [celebrate, setCelebrate] = useState(null);
   const [justLogged, setJustLogged] = useState(null);
 
@@ -264,7 +265,7 @@ export default function TodayScreen() {
         entries.map((en, i) => {
           const exercise = exMap[en.exerciseId] || { id: en.exerciseId, name: en.exerciseId, muscle: '—', unit: 'kg' };
           const sets = todaySets.filter((s) => s.exerciseId === en.exerciseId).sort((a, b) => a.n - b.n);
-          const last = lastSets(logs, en.exerciseId, week, todayKey);
+          const last = lastSetsGlobal(workouts, setsByWorkout, en.exerciseId, isoDate());
           return (
             <ExerciseCard key={en.exerciseId + i} exercise={exercise} sets={sets} last={last} justLogged={justLogged === i}
               onLogSet={(d) => logSet(i, d)}
@@ -282,22 +283,41 @@ export default function TodayScreen() {
       )}
 
       {/* Change today's plan */}
-      <Sheet open={dayPicker} onClose={() => setDayPicker(false)} title="Train a different plan">
-        <div className="gt-sub" style={{ marginBottom: 12, lineHeight: 1.5 }}>Moved days or deload? Load any day's plan for today — exercises with logged sets are kept.</div>
+      <Sheet open={dayPicker} onClose={() => { setDayPicker(false); setPreviewDay(null); }} title="Train a different plan">
+        <div className="gt-sub" style={{ marginBottom: 12, lineHeight: 1.5 }}>Tap a day to preview its routine. Loading a plan replaces today's list — sets you already logged still count in History and Metrics.</div>
         {DAY_KEYS.map((d) => {
           const t = templates[d];
           if (!t) return null;
           const on = templateDay === d;
+          const expanded = previewDay === d;
           return (
-            <button key={d} className="gt-card" style={{ width: '100%', padding: '13px 16px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12, font: 'inherit', color: 'inherit', textAlign: 'left', cursor: 'pointer', borderColor: on ? 'var(--accent)' : undefined }}
-              onClick={async () => { await store.overrideToday(d); setDayPicker(false); }}>
-              <div className="gt-num" style={{ fontSize: 15, width: 38, color: on ? 'var(--accent)' : 'var(--text-2)' }}>{d}</div>
-              <div style={{ flex: 1 }}>
-                <div className="gt-body" style={{ fontWeight: 800 }}>{t.block}</div>
-                <div className="gt-micro" style={{ marginTop: 2 }}>{t.exerciseIds.length} exercises{d === todayKey ? ' · scheduled today' : ''}</div>
-              </div>
-              {on ? <div style={{ color: 'var(--accent)' }}><GIcon name="check" size={18} stroke={2.4} /></div> : null}
-            </button>
+            <div key={d} className="gt-card" style={{ marginBottom: 8, borderColor: on ? 'var(--accent)' : undefined }}>
+              <button style={{ width: '100%', padding: '13px 16px', display: 'flex', alignItems: 'center', gap: 12, background: 'none', border: 'none', font: 'inherit', color: 'inherit', textAlign: 'left', cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
+                onClick={() => setPreviewDay(expanded ? null : d)}>
+                <div className="gt-num" style={{ fontSize: 15, width: 38, color: on ? 'var(--accent)' : 'var(--text-2)' }}>{d}</div>
+                <div style={{ flex: 1 }}>
+                  <div className="gt-body" style={{ fontWeight: 800 }}>{t.block}</div>
+                  <div className="gt-micro" style={{ marginTop: 2 }}>{t.exerciseIds.length} exercises{d === todayKey ? ' · scheduled today' : ''}{on ? ' · current plan' : ''}</div>
+                </div>
+                <div style={{ color: on ? 'var(--accent)' : 'var(--text-3)' }}><GIcon name={expanded ? 'chevU' : 'chevD'} size={16} /></div>
+              </button>
+              {expanded && (
+                <div style={{ padding: '0 16px 14px' }}>
+                  {t.exerciseIds.map((id) => (
+                    <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 0', borderTop: '1px solid var(--border)' }}>
+                      <div className="gt-body" style={{ fontWeight: 600, fontSize: 13.5, flex: 1 }}>{exMap[id]?.name || id}</div>
+                      <div className="gt-micro">{exMap[id]?.muscle || ''}</div>
+                    </div>
+                  ))}
+                  {!on && (
+                    <button className="gt-btn gt-btn-primary" style={{ width: '100%', marginTop: 12, minHeight: 44, fontSize: 14 }}
+                      onClick={async () => { await store.overrideToday(d); setDayPicker(false); setPreviewDay(null); }}>
+                      Train this today
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           );
         })}
       </Sheet>

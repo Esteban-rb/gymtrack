@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { toKg, fmtWeight, splitUnit, joinUnit, est1RM, setTonnage, medalForStandards, medalForProgression, weekOfPeriod, dayKeyOf, mondayOf, parseISO } from './calc.js';
-import { dayVolume, weekAvgLoad } from './metrics.js';
+import { dayVolume, weekAvgLoad, buildLogs, lastSetsGlobal } from './metrics.js';
 
 describe('unit normalization → realKg', () => {
   it('kg passes through: "100 kg" → 100 kg', () => {
@@ -64,6 +64,29 @@ describe('tonnage uses realKg, not the entered value', () => {
   it('secondary metric = avg(realKg) × avg(reps)', () => {
     const logs = { 1: { Mon: { finished: true, exercises: [{ id: 'a', sets: [set(100, 'kg', 10), set(50, 'kg', 6)] }] } } };
     expect(weekAvgLoad(logs, 1)).toBe(600); // avg 75 kg × avg 8 reps
+  });
+});
+
+describe('plan switching & history references', () => {
+  const set = (exerciseId, realKg = 50) => ({ exerciseId, n: 1, reps: 10, value: realKg, unit: 'kg', realKg });
+  it('buildLogs keeps sets whose exercise left the plan (day override)', () => {
+    const w = { id: 1, periodId: 1, week: 1, dayKey: 'Mon', date: '2026-06-08', finished: true, entries: [{ exerciseId: 'b' }] };
+    const logs = buildLogs([w], { 1: [set('a')] }, 1, { a: { name: 'A' }, b: { name: 'B' } });
+    const orphan = logs[1].Mon.exercises.find((x) => x.id === 'a');
+    expect(orphan).toBeTruthy();
+    expect(orphan.sets).toHaveLength(1);
+  });
+  it('lastSetsGlobal finds the most recent prior session across periods', () => {
+    const workouts = [
+      { id: 1, periodId: 9, date: '2026-04-06' }, // archived/imported period
+      { id: 2, periodId: 9, date: '2026-05-04' },
+      { id: 3, periodId: 1, date: '2026-06-10' }, // today — must be excluded
+    ];
+    const byW = { 1: [set('a', 40)], 2: [set('a', 45)], 3: [set('a', 50)] };
+    const last = lastSetsGlobal(workouts, byW, 'a', '2026-06-10');
+    expect(last.date).toBe('2026-05-04');
+    expect(last.sets[0].realKg).toBe(45);
+    expect(lastSetsGlobal(workouts, byW, 'zzz', '2026-06-10')).toBeNull();
   });
 });
 
