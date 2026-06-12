@@ -3,33 +3,42 @@
 
 export const KG_PER_LB = 0.45359237;
 export const KG_PER_PLATE = 40; // 1 plate = 20 kg per side = 40 kg total
-export const UNITS = ['kg', 'lb', 'x2', 'plates'];
+export const BASE_UNITS = ['kg', 'lb', 'plates'];
 export const MEDALS = ['Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond'];
 export const DAY_KEYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 
+/* Unit strings: 'kg' | 'lb' | 'plates', optionally doubled per-side ('kgx2', 'lbx2').
+ * Legacy 'x2' (pre-composite) means lb doubled. Plates are already a total, never ×2. */
+export function splitUnit(unit) {
+  if (unit === 'x2') return { base: 'lb', dbl: true };
+  if (typeof unit === 'string' && unit.endsWith('x2')) return { base: unit.slice(0, -2), dbl: true };
+  return { base: unit || 'kg', dbl: false };
+}
+
+export function joinUnit(base, dbl) {
+  return dbl && base !== 'plates' ? base + 'x2' : base;
+}
+
 /** Normalize an entered value+unit to real kilograms.
- *  x2 = per-arm in lb, doubled ("60 lb ×2" → 54.43 kg total). */
+ *  ×2 = per-side load, doubled ("60 lb ×2" → 54.43 kg total, "20 kg ×2" → 40 kg). */
 export function toKg(value, unit) {
   if (value == null || isNaN(value)) return 0;
-  switch (unit) {
-    case 'kg': return value;
-    case 'lb': return value * KG_PER_LB;
-    case 'x2': return value * KG_PER_LB * 2;
-    case 'plates': return value * KG_PER_PLATE;
-    default: return value;
-  }
+  const { base, dbl } = splitUnit(unit);
+  const one = base === 'lb' ? value * KG_PER_LB : base === 'plates' ? value * KG_PER_PLATE : value;
+  return dbl ? one * 2 : one;
 }
 
 /** Display the value exactly as the user entered it. */
 export function fmtWeight(value, unit) {
   if (value == null) return '—';
   const n = Number.isInteger(value) ? value : +value.toFixed(2);
-  switch (unit) {
-    case 'kg': return n + ' kg';
-    case 'lb': return n + ' lb';
-    case 'x2': return n + ' lb ×2';
+  const { base, dbl } = splitUnit(unit);
+  const tail = dbl ? ' ×2' : '';
+  switch (base) {
+    case 'kg': return n + ' kg' + tail;
+    case 'lb': return n + ' lb' + tail;
     case 'plates': return n + (n === 1 ? ' plate' : ' plates');
-    default: return String(n);
+    default: return String(n) + tail;
   }
 }
 
@@ -117,6 +126,6 @@ export function fmtDate(iso) {
 /** Default overload suggestion: +bump weight or +1 rep over last week's top set. */
 export function suggestOverload(topSet) {
   if (!topSet) return null;
-  const bump = topSet.unit === 'plates' ? 0.25 : topSet.unit === 'kg' ? 2.5 : 2.5;
+  const bump = splitUnit(topSet.unit).base === 'plates' ? 0.25 : 2.5;
   return 'Try ' + fmtWeight(+(topSet.value + bump).toFixed(2), topSet.unit) + ' or +1 rep';
 }

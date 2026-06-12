@@ -2,7 +2,7 @@
 import React, { useMemo, useState } from 'react';
 import { useStore } from '../store.js';
 import { buildLogs, dayVolume, lastSets } from '../metrics.js';
-import { fmtWeight, suggestOverload, weekOfPeriod, dayKeyOf, DAY_KEYS } from '../calc.js';
+import { fmtWeight, suggestOverload, splitUnit, weekOfPeriod, dayKeyOf, DAY_KEYS } from '../calc.js';
 import { GIcon, Stepper, UnitChips, Sheet, Confetti, EmptyState } from '../components.jsx';
 
 const haptic = () => { try { navigator.vibrate && navigator.vibrate(12); } catch { /* unsupported */ } };
@@ -29,7 +29,7 @@ function LoggedSetRow({ set, onEdit, onDelete, editing }) {
 
 /* ---------- Input row: weight + reps steppers, unit chips, log button ---------- */
 function LogRow({ draft, setDraft, onLog, editing }) {
-  const step = draft.unit === 'plates' ? 0.25 : 2.5;
+  const step = splitUnit(draft.unit).base === 'plates' ? 0.25 : 2.5;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 10 }}>
       <div style={{ display: 'flex', gap: 8 }}>

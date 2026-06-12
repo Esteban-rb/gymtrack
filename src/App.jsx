@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from './store.js';
 import { MEDALS } from './calc.js';
-import { TabBar, MedalBadge, MEDAL_COLORS } from './components.jsx';
+import { TabBar, MedalBadge, MEDAL_COLORS, PeriodFinishOverlay } from './components.jsx';
 import TodayScreen from './screens/Today.jsx';
 import MetricsScreen from './screens/Metrics.jsx';
 import RecordsScreen from './screens/Records.jsx';
@@ -60,6 +60,7 @@ export default function App() {
       </div>
       <TabBar tab={tab} onChange={setTab} />
       <MedalToast />
+      {store.periodCelebration ? <PeriodFinishOverlay summary={store.periodCelebration} onClose={store.dismissPeriodCelebration} /> : null}
     </div>
   );
 }

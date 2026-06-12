@@ -3,7 +3,7 @@ import React, { useRef, useState } from 'react';
 import { useStore } from '../store.js';
 import { MUSCLES } from '../db.js';
 import { MEDALS, fmtDate, isoDate, parseISO, addDays, DAY_KEYS } from '../calc.js';
-import { exportJSON, exportXLSX, importJSON } from '../backup.js';
+import { exportJSON, exportXLSX, importJSON, importXLSX } from '../backup.js';
 import { GIcon, Stepper, UnitChips, Sheet, SectionHead } from '../components.jsx';
 
 function SettingRow({ label, sub, right, onClick }) {
@@ -23,6 +23,7 @@ export default function SettingsScreen() {
   const store = useStore();
   const { profile, period, templates, exercises } = store;
   const [routineDay, setRoutineDay] = useState('Mon');
+  const [blockDraft, setBlockDraft] = useState(null); // editing buffer for the day's name
   const [editingEx, setEditingEx] = useState(null);   // exercise being edited (draft copy)
   const [addSheet, setAddSheet] = useState(false);
   const [addQuery, setAddQuery] = useState('');
@@ -50,15 +51,25 @@ export default function SettingsScreen() {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    if (!window.confirm('Importing replaces ALL current data with the backup. Continue?')) return;
+    const isExcel = /\.xlsx?$/i.test(file.name);
     try {
-      await importJSON(file);
-      await store.init();
-      setImportMsg('Backup restored ✓');
+      if (isExcel) {
+        const { counts, affected } = await importXLSX(file);
+        await store.init();
+        // recompute baselines/PRs/medals for everything the file touched, silently
+        for (const id of affected) await store.refreshPR(id);
+        store.dismissMedal();
+        setImportMsg(`Imported ${counts.sets} sets · ${counts.workouts} workouts · ${counts.exercises} new exercises` + (counts.skipped ? ` · ${counts.skipped} duplicates skipped` : '') + ' ✓');
+      } else {
+        if (!window.confirm('Importing a JSON backup replaces ALL current data. Continue?')) return;
+        await importJSON(file);
+        await store.init();
+        setImportMsg('Backup restored ✓');
+      }
     } catch (err) {
       setImportMsg('Import failed: ' + err.message);
     }
-    setTimeout(() => setImportMsg(null), 4000);
+    setTimeout(() => setImportMsg(null), 6000);
   };
 
   return (
@@ -105,9 +116,22 @@ export default function SettingsScreen() {
       <div className="gt-card" style={{ padding: '14px 16px' }}>
         <div className="gt-scroll" style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
           {DAY_KEYS.map((d) => (
-            <button key={d} className={'gt-chip' + (routineDay === d ? ' on' : '')} style={{ flexShrink: 0 }} onClick={() => setRoutineDay(d)}>{d}{templates[d] ? ' · ' + templates[d].block : ''}</button>
+            <button key={d} className={'gt-chip' + (routineDay === d ? ' on' : '')} style={{ flexShrink: 0 }} onClick={() => { setRoutineDay(d); setBlockDraft(null); }}>{d}{templates[d] ? ' · ' + templates[d].block : ''}</button>
           ))}
         </div>
+        <div className="gt-micro" style={{ margin: '12px 0 5px 4px' }}>{routineDay.toUpperCase()} · DAY NAME</div>
+        <input
+          className="gt-input"
+          value={blockDraft != null ? blockDraft : (templates[routineDay]?.block || '')}
+          placeholder="e.g. Push-Pull, Legs, Upper…"
+          onChange={(e) => setBlockDraft(e.target.value)}
+          onBlur={async () => {
+            const name = (blockDraft || '').trim();
+            if (blockDraft == null || !name || name === templates[routineDay]?.block) { setBlockDraft(null); return; }
+            await store.saveTemplate({ ...tpl, block: name });
+            setBlockDraft(null);
+          }}
+          onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
         <div style={{ marginTop: 10 }}>
           {tpl.exerciseIds.map((id, idx) => {
             const e = exMap[id];
@@ -138,13 +162,13 @@ export default function SettingsScreen() {
 
       <SectionHead>Data</SectionHead>
       <div className="gt-card" style={{ padding: '14px 16px' }}>
-        <div className="gt-sub" style={{ lineHeight: 1.5 }}>Everything lives on this device (IndexedDB). Works fully offline — back up before switching phones.</div>
+        <div className="gt-sub" style={{ lineHeight: 1.5 }}>Everything lives on this device (IndexedDB). Works fully offline — back up before switching phones. Import accepts a JSON backup (full restore) or an Excel file with your past records (Date, Exercise, Value, Unit, Reps — merged, never deletes).</div>
         <div style={{ display: 'flex', gap: 9, marginTop: 13 }}>
           <button className="gt-btn gt-btn-ghost" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={() => exportJSON()}><GIcon name="download" size={16} />JSON backup</button>
           <button className="gt-btn gt-btn-ghost" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={() => exportXLSX()}><GIcon name="download" size={16} />Excel</button>
           <button className="gt-btn gt-btn-ghost" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={() => fileRef.current?.click()}><GIcon name="upload" size={16} />Import</button>
         </div>
-        <input ref={fileRef} type="file" accept="application/json" style={{ display: 'none' }} onChange={onImportFile} />
+        <input ref={fileRef} type="file" accept=".json,.xlsx,.xls,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style={{ display: 'none' }} onChange={onImportFile} />
         {importMsg ? <div className="gt-sub" style={{ marginTop: 10, color: importMsg.includes('✓') ? 'var(--success)' : 'var(--accent)' }}>{importMsg}</div> : null}
       </div>
 

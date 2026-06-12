@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toKg, fmtWeight, est1RM, setTonnage, medalForStandards, medalForProgression, weekOfPeriod, dayKeyOf, mondayOf, parseISO } from './calc.js';
+import { toKg, fmtWeight, splitUnit, joinUnit, est1RM, setTonnage, medalForStandards, medalForProgression, weekOfPeriod, dayKeyOf, mondayOf, parseISO } from './calc.js';
 import { dayVolume, weekAvgLoad } from './metrics.js';
 
 describe('unit normalization → realKg', () => {
@@ -11,6 +11,17 @@ describe('unit normalization → realKg', () => {
   });
   it('x2 doubles per-arm lb: "60 lb x2" → 54.43 kg', () => {
     expect(toKg(60, 'x2')).toBeCloseTo(54.43, 2);
+  });
+  it('composite ×2 units: kgx2 and lbx2', () => {
+    expect(toKg(20, 'kgx2')).toBe(40);
+    expect(toKg(60, 'lbx2')).toBeCloseTo(54.43, 2); // same as legacy x2
+  });
+  it('splitUnit/joinUnit round-trips and legacy mapping', () => {
+    expect(splitUnit('x2')).toEqual({ base: 'lb', dbl: true });
+    expect(splitUnit('kgx2')).toEqual({ base: 'kg', dbl: true });
+    expect(splitUnit('kg')).toEqual({ base: 'kg', dbl: false });
+    expect(joinUnit('kg', true)).toBe('kgx2');
+    expect(joinUnit('plates', true)).toBe('plates'); // plates are a total, never doubled
   });
   it('plates: "3 plates" → 120 kg (40 kg per plate)', () => {
     expect(toKg(3, 'plates')).toBe(120);
@@ -25,6 +36,7 @@ describe('unit normalization → realKg', () => {
 describe('display formatting keeps the raw entry', () => {
   it('shows what was typed, not realKg', () => {
     expect(fmtWeight(60, 'x2')).toBe('60 lb ×2');
+    expect(fmtWeight(20, 'kgx2')).toBe('20 kg ×2');
     expect(fmtWeight(3, 'plates')).toBe('3 plates');
     expect(fmtWeight(1, 'plates')).toBe('1 plate');
     expect(fmtWeight(100, 'kg')).toBe('100 kg');

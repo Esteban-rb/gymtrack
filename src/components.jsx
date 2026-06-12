@@ -1,6 +1,6 @@
 // GymTrack — shared UI (icons, medals, charts, tab bar, inputs), ported from the design prototype.
-import React, { useEffect, useRef } from 'react';
-import { UNITS } from './calc.js';
+import React, { useEffect, useRef, useState } from 'react';
+import { BASE_UNITS, splitUnit, joinUnit, MEDALS, fmtDate } from './calc.js';
 
 /* ============ Icons (24px stroke set) ============ */
 export function GIcon({ name, size = 22, stroke = 1.8, style }) {
@@ -95,25 +95,46 @@ export function ProgressBar({ value, max, height = 8, color = 'var(--accent)' })
   );
 }
 
-/* ============ Stepper (large thumb-friendly +/-) ============ */
+/* ============ Stepper (+/- buttons; the number itself is a numeric input) ============ */
 export function Stepper({ value, onChange, step = 1, min = 0, format, width = 132 }) {
-  const disp = format ? format(value) : value;
+  const [text, setText] = useState(null); // null = not editing; string = live keyboard entry
+  const commit = () => {
+    if (text == null) return;
+    const v = parseFloat(text.replace(',', '.'));
+    if (!isNaN(v)) onChange(Math.max(min, +v.toFixed(2)));
+    setText(null);
+  };
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'var(--input-bg)', borderRadius: 14, border: '1px solid var(--border)', height: 48, width }}>
       <button className="gt-iconbtn" style={{ border: 'none', background: 'transparent', width: 42, height: 46 }} onClick={() => onChange(Math.max(min, +(value - step).toFixed(2)))} aria-label="decrease"><GIcon name="minus" size={18} /></button>
-      <div className="gt-num" style={{ flex: 1, textAlign: 'center', fontSize: 19 }}>{disp}</div>
+      <input
+        className="gt-num"
+        type="text" inputMode="decimal" enterKeyHint="done"
+        value={text != null ? text : String(format ? format(value) : value)}
+        onFocus={(e) => { setText(String(value)); requestAnimationFrame(() => e.target.select()); }}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+        style={{ flex: 1, minWidth: 0, textAlign: 'center', fontSize: 19, background: 'transparent', border: 'none', outline: 'none', color: 'var(--text)', padding: 0 }}
+        aria-label="value" />
       <button className="gt-iconbtn" style={{ border: 'none', background: 'transparent', width: 42, height: 46 }} onClick={() => onChange(+(value + step).toFixed(2))} aria-label="increase"><GIcon name="plus" size={18} /></button>
     </div>
   );
 }
 
-/* ============ Unit chips ============ */
+/* ============ Unit chips: base unit + ×2 modifier (per-side, kg/lb only) ============ */
 export function UnitChips({ value, onChange }) {
+  const { base, dbl } = splitUnit(value);
   return (
     <div style={{ display: 'flex', gap: 6 }}>
-      {UNITS.map((u) => (
-        <button key={u} className={'gt-chip' + (value === u ? ' on' : '')} onClick={() => onChange(u)}>{u === 'x2' ? '×2' : u}</button>
+      {BASE_UNITS.map((u) => (
+        <button key={u} className={'gt-chip' + (base === u ? ' on' : '')} onClick={() => onChange(joinUnit(u, dbl))}>{u}</button>
       ))}
+      <button
+        className={'gt-chip' + (dbl ? ' on' : '')}
+        style={base === 'plates' ? { opacity: 0.35, cursor: 'default' } : undefined}
+        onClick={() => base !== 'plates' && onChange(joinUnit(base, !dbl))}
+        aria-label="per-side, doubled">×2</button>
     </div>
   );
 }
@@ -238,6 +259,64 @@ export function Confetti({ run }) {
     return () => cancelAnimationFrame(raf);
   }, [run]);
   return <canvas ref={ref} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 5 }} />;
+}
+
+/* ============ Period-complete celebration overlay ============ */
+export function PeriodFinishOverlay({ summary, onClose }) {
+  const medalTotal = summary.medals.reduce((a, b) => a + b, 0);
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'var(--bg)', display: 'flex', flexDirection: 'column', animation: 'gt-fade 0.25s ease', overflow: 'hidden' }}>
+      <Confetti run={true} />
+      <div className="gt-scroll" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '60px 24px 120px', position: 'relative', zIndex: 6 }}>
+        <div style={{ width: 86, height: 86, borderRadius: 999, background: 'var(--accent-soft)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'gt-pop 0.55s cubic-bezier(.2,1.4,.4,1)' }}>
+          <GIcon name="trophy" size={42} stroke={2} />
+        </div>
+        <div className="gt-display" style={{ marginTop: 22, fontSize: 32 }}>PERIOD COMPLETE</div>
+        <div className="gt-sub" style={{ marginTop: 8, maxWidth: 280, lineHeight: 1.5 }}>
+          {summary.weeks} weeks since {fmtDate(summary.startDate)}. Here's what you built.
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 26, width: '100%', maxWidth: 340 }}>
+          {[['Workouts', summary.workouts], ['Sets', summary.sets], ['Tonnage', (summary.volume / 1000).toFixed(1) + 't']].map(([l, v]) => (
+            <div key={l} className="gt-card" style={{ flex: 1, padding: '14px 8px' }}>
+              <div className="gt-num" style={{ fontSize: 24 }}>{v}</div>
+              <div className="gt-micro" style={{ marginTop: 3 }}>{l.toUpperCase()}</div>
+            </div>
+          ))}
+        </div>
+
+        {summary.gains.length > 0 && (
+          <div className="gt-card" style={{ marginTop: 12, width: '100%', maxWidth: 340, padding: '14px 16px', textAlign: 'left' }}>
+            <div className="gt-label" style={{ color: 'var(--accent)', marginBottom: 8 }}>Top progress</div>
+            {summary.gains.map((g) => (
+              <div key={g.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0' }}>
+                <div className="gt-body" style={{ fontWeight: 700, flex: 1, minWidth: 0 }}>{g.name}</div>
+                <div className="gt-num" style={{ fontSize: 15, color: 'var(--text-2)' }}>{g.from}→{g.to} kg</div>
+                <div className="gt-num" style={{ fontSize: 15, color: 'var(--success)', width: 56, textAlign: 'right' }}>+{g.pct}%</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {medalTotal > 0 && (
+          <div className="gt-card" style={{ marginTop: 12, width: '100%', maxWidth: 340, padding: '14px 16px' }}>
+            <div className="gt-label" style={{ marginBottom: 10 }}>Medal cabinet</div>
+            <div style={{ display: 'flex', justifyContent: 'space-around' }}>
+              {summary.medals.map((count, lvl) => count > 0 && (
+                <div key={lvl} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                  <MedalBadge level={lvl} size={40} />
+                  <div className="gt-micro">{count}× {MEDALS[lvl].toUpperCase()}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+      <div style={{ position: 'absolute', left: 20, right: 20, bottom: 28, zIndex: 7 }}>
+        <button className="gt-btn gt-btn-primary" style={{ width: '100%', minHeight: 54, fontSize: 16 }} onClick={onClose}>Start the next one</button>
+      </div>
+    </div>
+  );
 }
 
 /* ============ Tab bar ============ */

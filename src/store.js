@@ -2,7 +2,7 @@
 import { create } from 'zustand';
 import { db, ensureSeeded } from './db.js';
 import { toKg, est1RM, isoDate, mondayOf, weekOfPeriod, dayKeyOf, medalForStandards, medalForProgression } from './calc.js';
-import { bestSet, dayPRs, buildLogs, dayVolume, workoutsDone } from './metrics.js';
+import { bestSet, dayPRs, buildLogs, dayVolume, workoutsDone, weekVolume, exerciseSeries } from './metrics.js';
 
 const sortByOrder = (a, b) => (a.order ?? 0) - (b.order ?? 0);
 
@@ -18,6 +18,7 @@ export const useStore = create((set, get) => ({
   bodyweight: [],        // sorted by date asc
   prs: {},               // exerciseId -> personalRecords row
   medalUnlock: null,     // transient: { exercise, level }
+  periodCelebration: null, // transient: summary of the period just archived
 
   /* ---------------- bootstrap ---------------- */
   init: async () => {
@@ -74,14 +75,45 @@ export const useStore = create((set, get) => ({
     set({ period, allPeriods: get().allPeriods.map((p) => (p.id === period.id ? period : p)) });
   },
 
+  /** Everything the closing recap needs, computed from the active period's logs. */
+  periodSummary: () => {
+    const { period, workouts, setsByWorkout, exercises } = get();
+    if (!period) return null;
+    const exMap = get().exMap();
+    const logs = buildLogs(workouts, setsByWorkout, period.id, exMap);
+    let volume = 0, sets = 0;
+    for (const w of Object.keys(logs)) {
+      volume += weekVolume(logs, +w);
+      for (const d of Object.keys(logs[w])) for (const ex of logs[w][d].exercises) sets += ex.sets.length;
+    }
+    const gains = [];
+    for (const e of exercises) {
+      const series = exerciseSeries(logs, e.id);
+      if (series.length < 2) continue;
+      const first = series[0].kg, best = Math.max(...series.map((s) => s.kg));
+      if (first > 0 && best > first) gains.push({ id: e.id, name: e.name, from: first, to: best, pct: Math.round(((best - first) / first) * 100) });
+    }
+    gains.sort((a, b) => b.pct - a.pct);
+    const medals = [0, 0, 0, 0, 0];
+    for (const e of exercises) {
+      const l = get().medalLevel(e.id);
+      if (l >= 0) medals[l]++;
+    }
+    return { weeks: period.weeks, startDate: period.startDate, workouts: workoutsDone(logs), sets, volume, gains: gains.slice(0, 3), medals };
+  },
+
   archiveAndStartNew: async () => {
     const { period } = get();
+    const summary = get().periodSummary();
     if (period) await db.periods.update(period.id, { status: 'archived', endDate: isoDate() });
     const fresh = { startDate: isoDate(mondayOf(new Date())), weeks: period?.weeks || 12, status: 'active' };
     fresh.id = await db.periods.add(fresh);
     const allPeriods = await db.periods.toArray();
-    set({ period: fresh, allPeriods });
+    // only celebrate if the period actually had training in it
+    set({ period: fresh, allPeriods, periodCelebration: summary && summary.workouts > 0 ? summary : null });
   },
+
+  dismissPeriodCelebration: () => set({ periodCelebration: null }),
 
   /* ---------------- workouts ---------------- */
   /** Today's workout row, or null. */

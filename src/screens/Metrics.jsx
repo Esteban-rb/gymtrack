@@ -4,6 +4,7 @@ import { useStore } from '../store.js';
 import * as M from '../metrics.js';
 import { weekOfPeriod, dayKeyOf, DAY_KEYS } from '../calc.js';
 import { GIcon, ProgressBar, Stepper, Sheet, BarChart, LineChart, Donut, DONUT_COLORS, SectionHead, EmptyState } from '../components.jsx';
+import BodyMap from '../bodymap.jsx';
 
 function MetricCard({ children, style }) {
   return <div className="gt-card" style={{ padding: '16px', marginBottom: 12, ...style }}>{children}</div>;
@@ -43,6 +44,21 @@ export default function MetricsScreen() {
   const muscles = useMemo(() => M.muscleAverages(logs, week, exMap), [logs, week, exMap]);
   const split = useMemo(() => M.muscleVolumeSplit(logs, exMap), [logs, exMap]);
   const cumTonnage = useMemo(() => { let t = 0; for (let w = 1; w <= week; w++) t += M.weekVolume(logs, w); return t; }, [logs, week]);
+
+  // average medal level per muscle group, for the body map
+  const prs = store.prs;
+  const medalByMuscle = useMemo(() => {
+    const agg = {};
+    for (const e of exercises) {
+      if (e.active === false) continue;
+      const l = store.medalLevel(e.id);
+      if (l < 0) continue;
+      (agg[e.muscle] = agg[e.muscle] || []).push(l);
+    }
+    const out = {};
+    for (const [m, ls] of Object.entries(agg)) out[m] = ls.reduce((a, b) => a + b, 0) / ls.length;
+    return out;
+  }, [exercises, prs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const exsWithData = exercises.filter((e) => M.bestSet(logs, e.id));
   const sel = exSel && exsWithData.some((e) => e.id === exSel) ? exSel : (exsWithData[0]?.id || '');
@@ -116,6 +132,12 @@ export default function MetricsScreen() {
             <div className="gt-num" style={{ fontSize: 15 }}>{m.avgReps}</div>
           </div>
         ))}
+      </MetricCard>
+
+      <SectionHead>Muscle medal map</SectionHead>
+      <MetricCard>
+        <BodyMap levels={medalByMuscle} />
+        <div className="gt-micro" style={{ marginTop: 12, textAlign: 'center' }}>Each muscle takes the average medal of its exercises</div>
       </MetricCard>
 
       {sel && (
