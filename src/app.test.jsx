@@ -69,5 +69,13 @@ describe('app boots and core flows work', () => {
     expect(text()).toContain('Workouts'.toUpperCase());
     await act(() => useStore.getState().dismissPeriodCelebration());
     expect(text()).not.toContain('PERIOD COMPLETE');
+
+    // fresh period with no workouts, but history exists → Metrics keeps the medal map,
+    // and History defaults to the archived period that has the data
+    click('[aria-label="Metrics"]');
+    await waitFor(() => text().includes('Muscle medal map'), 'medal map without active-period data');
+    expect(text()).not.toContain('No data yet');
+    click('[aria-label="History"]');
+    await waitFor(() => text().includes('Archived ·'), 'History opens the period with data');
   });
 });

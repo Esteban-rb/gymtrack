@@ -11,7 +11,12 @@ export default function HistoryScreen() {
   const exMap = useMemo(() => Object.fromEntries(exercises.map((e) => [e.id, e])), [exercises]);
 
   const periodsSorted = [...allPeriods].sort((a, b) => b.startDate.localeCompare(a.startDate));
-  const [periodId, setPeriodId] = useState(period?.id ?? periodsSorted[0]?.id);
+  // default to the active period if it has workouts, else the newest period that does
+  const [periodId, setPeriodId] = useState(() => {
+    const hasWorkouts = (p) => p && workouts.some((w) => w.periodId === p.id);
+    if (hasWorkouts(period)) return period.id;
+    return periodsSorted.find(hasWorkouts)?.id ?? period?.id ?? periodsSorted[0]?.id;
+  });
   const selPeriod = allPeriods.find((p) => p.id === periodId) || period;
 
   const logs = useMemo(
@@ -21,7 +26,7 @@ export default function HistoryScreen() {
 
   const isActive = selPeriod?.status === 'active';
   const cw = selPeriod ? (isActive ? Math.min(weekOfPeriod(selPeriod.startDate), selPeriod.weeks) : selPeriod.weeks) : 1;
-  const [wk, setWk] = useState(() => (cw - 1 >= 1 ? cw - 1 : cw));
+  const [wk, setWk] = useState(() => (isActive && cw - 1 >= 1 ? cw - 1 : isActive ? cw : 1));
   const [openDay, setOpenDay] = useState(null);
 
   const weeks = [];

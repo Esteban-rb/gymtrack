@@ -60,6 +60,8 @@ export default function MetricsScreen() {
     return out;
   }, [exercises, prs]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const hasMedals = Object.keys(medalByMuscle).length > 0;
+
   const exsWithData = exercises.filter((e) => M.bestSet(logs, e.id));
   const sel = exSel && exsWithData.some((e) => e.id === exSel) ? exSel : (exsWithData[0]?.id || '');
   const series = useMemo(() => (sel ? M.exerciseSeries(logs, sel) : []), [logs, sel]);
@@ -72,13 +74,32 @@ export default function MetricsScreen() {
 
   const bwSeries = bodyweight.map((b) => ({ label: b.date.slice(5).replace('-', '/'), kg: b.kg }));
 
-  if (!hasData) {
+  // medals live across periods — only fully empty when there's no data AND no medals
+  if (!hasData && !hasMedals) {
     return (
       <div className="gt-scroll" style={{ height: '100%', padding: '18px 16px 150px' }}>
         <div className="gt-h1" style={{ marginBottom: 4 }}>Metrics</div>
         <div className="gt-sub">Your training dashboard</div>
         <div className="gt-card" style={{ marginTop: 18 }}>
           <EmptyState icon="chart" title="No data yet" body="Finish your first workout and your volume, muscle and progress charts will light up here." />
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasData) {
+    // no workouts in the active period yet, but there IS history (e.g. imported / archived)
+    return (
+      <div className="gt-scroll" style={{ height: '100%', padding: '18px 16px 150px' }}>
+        <div className="gt-h1" style={{ marginBottom: 4 }}>Metrics</div>
+        <div className="gt-sub">Week {week} of {period.weeks}</div>
+        <SectionHead>Muscle medal map</SectionHead>
+        <MetricCard>
+          <BodyMap levels={medalByMuscle} />
+          <div className="gt-micro" style={{ marginTop: 12, textAlign: 'center' }}>Each muscle takes the average medal of its exercises</div>
+        </MetricCard>
+        <div className="gt-card" style={{ padding: 16, marginTop: 4 }}>
+          <div className="gt-sub" style={{ lineHeight: 1.5 }}>No workouts in this period yet — volume and progress charts light up as you train. Your full history lives in the History tab; records and medals in Records.</div>
         </div>
       </div>
     );

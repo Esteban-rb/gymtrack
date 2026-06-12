@@ -103,7 +103,8 @@ function normUnit(v, fallback = 'kg') {
  *  archived "Imported" period. Skips rows already present. Returns counts. */
 export async function importXLSX(file) {
   const XLSX = await import('xlsx');
-  const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+  // Uint8Array, not ArrayBuffer: cross-realm ArrayBuffers fail SheetJS's instanceof check
+  const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
   const sheet = wb.Sheets['Sets'] || wb.Sheets[wb.SheetNames[0]];
   if (!sheet) throw new Error('No sheets in file');
   const raw = XLSX.utils.sheet_to_json(sheet, { raw: true, defval: '' });
