@@ -75,14 +75,13 @@ html, body {
 .gt-sub { font-size: 12.5px; font-weight: 600; color: var(--text-2); }
 .gt-micro { font-size: 11px; font-weight: 600; color: var(--text-3); }
 
-/* ---- Card — frosted glass: soft translucent sheet, heavy blur, hairline light edge ---- */
+/* ---- Card — soft translucent sheet with hairline light edge.
+   Sin backdrop-filter: apilar blurs por tarjeta impide mantener 60/120fps al hacer scroll. ---- */
 .gt-card {
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.045) 50%, rgba(255, 255, 255, 0.025));
   border: 1px solid rgba(255, 255, 255, 0.13);
   border-radius: 22px;
   box-shadow: none;
-  backdrop-filter: blur(28px) saturate(1.35);
-  -webkit-backdrop-filter: blur(28px) saturate(1.35);
 }
 .gt-app.light .gt-card {
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0.45));
@@ -90,7 +89,7 @@ html, body {
   box-shadow: 0 8px 28px rgba(20, 22, 26, 0.07);
 }
 
-/* ---- Buttons — glass treatment: flat translucent fill + blur, no shine ---- */
+/* ---- Buttons — flat translucent fill, no shine ---- */
 .gt-btn {
   display: flex; align-items: center; justify-content: center; gap: 8px;
   font-family: 'Manrope', sans-serif; font-weight: 800; font-size: 15px;
@@ -104,8 +103,6 @@ html, body {
   background: color-mix(in srgb, var(--accent) 62%, transparent);
   color: var(--on-accent);
   border: 1px solid color-mix(in srgb, var(--accent) 60%, rgba(255, 255, 255, 0.2));
-  backdrop-filter: blur(24px) saturate(1.4);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
   box-shadow: none;
 }
 .gt-btn-primary:active { background: color-mix(in srgb, var(--accent-press) 75%, transparent); }
@@ -113,8 +110,6 @@ html, body {
   background: rgba(255, 255, 255, 0.055);
   color: var(--text);
   border: 1px solid var(--border-strong);
-  backdrop-filter: blur(24px) saturate(1.4);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
   box-shadow: none;
 }
 .gt-btn-danger { background: transparent; color: var(--accent); border: 1px solid var(--border); }
@@ -126,8 +121,6 @@ html, body {
 .gt-iconbtn {
   width: 44px; height: 44px; min-width: 44px; border-radius: 999px; border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(18px) saturate(1.3);
-  -webkit-backdrop-filter: blur(18px) saturate(1.3);
   box-shadow: none;
   color: var(--text); display: flex; align-items: center; justify-content: center;
   cursor: pointer; transition: transform 0.12s ease; -webkit-tap-highlight-color: transparent;

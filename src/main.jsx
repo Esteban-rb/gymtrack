@@ -25,6 +25,5 @@ const fatal = (msg) => {
 };
 window.addEventListener('error', (e) => fatal(e.message + '\n' + (e.error?.stack || '')));
 window.addEventListener('unhandledrejection', (e) => fatal('rejection: ' + (e.reason?.stack || e.reason)));
-setInterval(() => { document.title = 'GT:' + (window.__gt_trace || 'no-trace'); }, 400);
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);

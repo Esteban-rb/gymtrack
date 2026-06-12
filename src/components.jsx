@@ -57,7 +57,7 @@ export function MedalBadge({ level, size = 44, animate = false }) {
   if (!locked && level >= 4) petals.push(petal(-34, 'l1', 0.8), petal(34, 'l2', 0.8));
   return (
     <div style={{ width: size, height: size, position: 'relative', flexShrink: 0, animation: animate ? 'gt-pop 0.5s cubic-bezier(.2,1.4,.4,1)' : undefined }} aria-hidden="true">
-      {!locked && <div style={{ position: 'absolute', inset: '14%', borderRadius: '50%', background: t.m, filter: 'blur(' + size * 0.2 + 'px)', opacity: 0.22 }} />}
+      {!locked && <div style={{ position: 'absolute', inset: '-4%', borderRadius: '50%', background: 'radial-gradient(circle, ' + t.m + ' 0%, transparent 68%)', opacity: 0.28 }} />}
       <svg width={size} height={size} viewBox="0 0 64 64" style={{ position: 'relative' }}>
         <defs>
           <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
