@@ -1,8 +1,7 @@
-// GymTrack — Metrics dashboard (all figures derived from realKg).
+// GymTrack — Metrics dashboard, grouped by rotation cycle (all figures derived from realKg).
 import React, { useMemo, useState } from 'react';
 import { useStore } from '../store.js';
 import * as M from '../metrics.js';
-import { weekOfPeriod, dayKeyOf, DAY_KEYS } from '../calc.js';
 import { GIcon, ProgressBar, Stepper, Sheet, BarChart, LineChart, Donut, DONUT_COLORS, SectionHead, EmptyState } from '../components.jsx';
 import BodyMap from '../bodymap.jsx';
 
@@ -12,7 +11,7 @@ function MetricCard({ children, style }) {
 
 export default function MetricsScreen() {
   const store = useStore();
-  const { period, workouts, setsByWorkout, exercises, bodyweight, templates } = store;
+  const { period, variants, workouts, setsByWorkout, exercises, bodyweight } = store;
   const exMap = useMemo(() => Object.fromEntries(exercises.map((e) => [e.id, e])), [exercises]);
 
   const [volMode, setVolMode] = useState('tonnage');
@@ -20,30 +19,32 @@ export default function MetricsScreen() {
   const [showBwSheet, setShowBwSheet] = useState(false);
   const [bwDraft, setBwDraft] = useState(store.profile?.bodyweightKg || 70);
 
-  const week = period ? Math.min(weekOfPeriod(period.startDate), period.weeks) : 0;
+  const cycle = period?.cycle ?? 1;
+  const cycleGoal = period?.cycleGoal || 6;
+  const perCycle = variants.length || 6;
   const logs = useMemo(
     () => (period ? M.buildLogs(workouts, setsByWorkout, period.id, exMap) : {}),
     [workouts, setsByWorkout, period, exMap]
   );
 
   const totalWorkouts = M.workoutsDone(logs);
-  const trainingDaysPerWeek = DAY_KEYS.filter((d) => templates[d]?.exerciseIds?.length).length || 5;
-  const plannedTotal = (period?.weeks || 12) * trainingDaysPerWeek;
+  const plannedTotal = cycleGoal * perCycle;
   const hasData = totalWorkouts > 0;
 
-  const weeklyVol = useMemo(() => {
+  const cycleVol = useMemo(() => {
     const out = [];
-    for (let w = 1; w <= week; w++) {
-      const v = volMode === 'tonnage' ? M.weekVolume(logs, w) : M.weekAvgLoad(logs, w);
-      if (v > 0) out.push({ label: 'W' + w, value: v });
+    for (let c = 1; c <= cycle; c++) {
+      const v = volMode === 'tonnage' ? M.cycleVolume(logs, c) : M.cycleAvgLoad(logs, c);
+      if (v > 0) out.push({ label: 'C' + c, value: v });
     }
     return out;
-  }, [logs, volMode, week]);
+  }, [logs, volMode, cycle]);
 
-  const dayVol = useMemo(() => DAY_KEYS.map((d) => ({ label: d, value: M.dayVolume((logs[week] || {})[d]) })), [logs, week]);
-  const muscles = useMemo(() => M.muscleAverages(logs, week, exMap), [logs, week, exMap]);
+  const rotationPos = period?.rotationPos ?? 0;
+  const variantVol = useMemo(() => variants.map((v) => ({ label: v.code, value: M.dayVolume((logs[cycle] || {})[v.code]) })), [logs, cycle, variants]);
+  const muscles = useMemo(() => M.muscleAverages(logs, cycle, exMap), [logs, cycle, exMap]);
   const split = useMemo(() => M.muscleVolumeSplit(logs, exMap), [logs, exMap]);
-  const cumTonnage = useMemo(() => { let t = 0; for (let w = 1; w <= week; w++) t += M.weekVolume(logs, w); return t; }, [logs, week]);
+  const cumTonnage = useMemo(() => { let t = 0; for (let c = 1; c <= cycle; c++) t += M.cycleVolume(logs, c); return t; }, [logs, cycle]);
 
   // average medal level per muscle group, for the body map
   const prs = store.prs;
@@ -67,9 +68,8 @@ export default function MetricsScreen() {
   const series = useMemo(() => (sel ? M.exerciseSeries(logs, sel) : []), [logs, sel]);
   const rmSeries = useMemo(() => (sel ? M.oneRmSeries(logs, sel) : []), [logs, sel]);
 
-  // adherence: finished workouts vs programmed days elapsed so far
-  const todayIdx = DAY_KEYS.indexOf(dayKeyOf());
-  const programmedSoFar = Math.max(1, (week - 1) * trainingDaysPerWeek + (todayIdx >= 0 ? todayIdx + 1 : trainingDaysPerWeek));
+  // adherence: finished sessions vs sessions programmed so far in the rotation
+  const programmedSoFar = Math.max(1, (cycle - 1) * perCycle + rotationPos);
   const adherence = Math.min(100, Math.round((totalWorkouts / programmedSoFar) * 100));
 
   const bwSeries = bodyweight.map((b) => ({ label: b.date.slice(5).replace('-', '/'), kg: b.kg }));
@@ -81,7 +81,7 @@ export default function MetricsScreen() {
         <div className="gt-h1" style={{ marginBottom: 4 }}>Metrics</div>
         <div className="gt-sub">Your training dashboard</div>
         <div className="gt-card" style={{ marginTop: 18 }}>
-          <EmptyState icon="chart" title="No data yet" body="Finish your first workout and your volume, muscle and progress charts will light up here." />
+          <EmptyState icon="chart" title="No data yet" body="Finish your first session and your volume, muscle and progress charts will light up here." />
         </div>
       </div>
     );
@@ -92,14 +92,14 @@ export default function MetricsScreen() {
     return (
       <div className="gt-scroll" style={{ height: '100%', padding: '18px 16px 150px' }}>
         <div className="gt-h1" style={{ marginBottom: 4 }}>Metrics</div>
-        <div className="gt-sub">Week {week} of {period.weeks}</div>
+        <div className="gt-sub">Cycle {cycle} · by cycle</div>
         <SectionHead>Muscle medal map</SectionHead>
         <MetricCard>
           <BodyMap levels={medalByMuscle} />
           <div className="gt-micro" style={{ marginTop: 12, textAlign: 'center' }}>Each muscle takes the average medal of its exercises</div>
         </MetricCard>
         <div className="gt-card" style={{ padding: 16, marginTop: 4 }}>
-          <div className="gt-sub" style={{ lineHeight: 1.5 }}>No workouts in this period yet — volume and progress charts light up as you train. Your full history lives in the History tab; records and medals in Records.</div>
+          <div className="gt-sub" style={{ lineHeight: 1.5 }}>No sessions in this mesocycle yet — volume and progress charts light up as you train. Your full history lives in History; records and medals in Records.</div>
         </div>
       </div>
     );
@@ -108,39 +108,39 @@ export default function MetricsScreen() {
   return (
     <div className="gt-scroll" style={{ height: '100%', padding: '18px 16px 150px' }}>
       <div className="gt-h1" style={{ marginBottom: 4 }}>Metrics</div>
-      <div className="gt-sub">Week {week} of {period.weeks} · live</div>
+      <div className="gt-sub">Cycle {cycle} in progress · by cycle</div>
 
-      {/* Workouts + adherence row */}
+      {/* Cycles completed + adherence row */}
       <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
         <MetricCard style={{ flex: 1.4, marginBottom: 0 }}>
-          <div className="gt-label">Workouts</div>
-          <div className="gt-display" style={{ marginTop: 8 }}>{totalWorkouts}<span style={{ fontSize: 17, color: 'var(--text-3)', fontWeight: 500 }}> / {plannedTotal}</span></div>
-          <div style={{ marginTop: 12 }}><ProgressBar value={totalWorkouts} max={plannedTotal} /></div>
-          <div className="gt-micro" style={{ marginTop: 7 }}>{Math.max(0, period.weeks - week)} weeks left in period</div>
+          <div className="gt-label">Cycles complete</div>
+          <div className="gt-display" style={{ marginTop: 8 }}>{Math.max(0, cycle - 1)}<span style={{ fontSize: 17, color: 'var(--text-3)', fontWeight: 500 }}> / {cycleGoal}</span></div>
+          <div style={{ marginTop: 12 }}><ProgressBar value={Math.max(0, cycle - 1)} max={cycleGoal} /></div>
+          <div className="gt-micro" style={{ marginTop: 7 }}>{Math.max(0, cycleGoal - (cycle - 1))} cycles to your goal</div>
         </MetricCard>
         <MetricCard style={{ flex: 1, marginBottom: 0 }}>
           <div className="gt-label">Adherence</div>
           <div className="gt-display" style={{ marginTop: 8, color: adherence >= 90 ? 'var(--success)' : 'var(--text)' }}>{adherence}<span style={{ fontSize: 17, fontWeight: 500 }}>%</span></div>
-          <div className="gt-micro" style={{ marginTop: 12 }}>{totalWorkouts} of {programmedSoFar} programmed days</div>
+          <div className="gt-micro" style={{ marginTop: 12 }}>{totalWorkouts} of {programmedSoFar} sessions</div>
         </MetricCard>
       </div>
 
-      <SectionHead>Weekly volume</SectionHead>
+      <SectionHead>Volume per cycle</SectionHead>
       <MetricCard>
         <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
           <button className={'gt-chip' + (volMode === 'tonnage' ? ' on' : '')} onClick={() => setVolMode('tonnage')}>Total tonnage</button>
           <button className={'gt-chip' + (volMode === 'avg' ? ' on' : '')} onClick={() => setVolMode('avg')}>Avg kg × avg reps</button>
         </div>
-        <BarChart data={weeklyVol} accentIndex={weeklyVol.length - 1} fmtVal={(v) => (volMode === 'tonnage' ? Math.round(v / 100) / 10 + 'k' : v)} />
-        <div className="gt-micro" style={{ marginTop: 8 }}>{volMode === 'tonnage' ? 'Total real kg lifted per week (reps × realKg)' : 'Average real kg × average reps per set, per week'}</div>
+        <BarChart data={cycleVol} accentIndex={cycleVol.length - 1} fmtVal={(v) => (volMode === 'tonnage' ? Math.round(v / 100) / 10 + 'k' : v)} />
+        <div className="gt-micro" style={{ marginTop: 8 }}>{volMode === 'tonnage' ? 'Real kg lifted per cycle (1 bar = one full pass through the 6 variants)' : 'Average real kg × average reps per set, per cycle'}</div>
       </MetricCard>
 
-      <SectionHead>This week by day</SectionHead>
+      <SectionHead>This cycle by variant</SectionHead>
       <MetricCard>
-        <BarChart data={dayVol} accentIndex={todayIdx} height={110} />
+        <BarChart data={variantVol} accentIndex={rotationPos} height={110} />
       </MetricCard>
 
-      <SectionHead>Muscle averages · this week</SectionHead>
+      <SectionHead>Muscle averages · this cycle</SectionHead>
       <MetricCard style={{ padding: '8px 16px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 0.8fr 1fr 0.9fr', gap: 4, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
           {['MUSCLE', 'SETS', 'AVG KG', 'AVG REPS'].map((h) => <div key={h} className="gt-micro">{h}</div>)}
@@ -171,16 +171,16 @@ export default function MetricsScreen() {
               </select>
               <div style={{ position: 'absolute', right: 13, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-2)', pointerEvents: 'none' }}><GIcon name="chevD" size={16} /></div>
             </div>
-            <LineChart data={series} fmtVal={(v) => v + ' kg'} />
-            <div className="gt-micro" style={{ marginTop: 6 }}>Best working weight per week (real kg)</div>
+            <LineChart data={series} labelKey="cycle" fmtLabel={(l) => 'C' + l} fmtVal={(v) => v + ' kg'} />
+            <div className="gt-micro" style={{ marginTop: 6 }}>Best working weight per cycle (one point per cycle, not per week)</div>
             <div className="gt-divider" style={{ margin: '14px 0' }} />
             <div className="gt-label" style={{ marginBottom: 8 }}>Est. 1RM trend (Epley)</div>
-            <LineChart data={rmSeries} height={92} fmtVal={(v) => v + ' kg'} />
+            <LineChart data={rmSeries} height={92} labelKey="cycle" fmtLabel={(l) => 'C' + l} fmtVal={(v) => v + ' kg'} />
           </MetricCard>
         </>
       )}
 
-      <SectionHead>Volume split · period</SectionHead>
+      <SectionHead>Volume split · mesocycle</SectionHead>
       <MetricCard>
         <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
           <Donut data={split.slice(0, 6)} />

@@ -31,13 +31,13 @@ describe('app boots and core flows work', () => {
       createRoot(document.body.appendChild(document.createElement('div'))).render(<App />);
     });
     await waitFor(() => text().includes('SETS'), 'Today screen');
-    expect(text()).toContain('Week 1 of 12');
+    expect(text()).toContain('Cycle 1');
 
     for (const [tab, marker] of [
       ['Metrics', 'No data yet'],
       ['Records', ''],
       ['History', ''],
-      ['Settings', 'Period'],
+      ['Settings', 'Mesocycle'],
       ['Today', 'SETS'],
     ]) {
       click(`[aria-label="${tab}"]`);
@@ -47,7 +47,7 @@ describe('app boots and core flows work', () => {
 
   it('logs a set (×2 unit), finishes the workout, archives the period with a recap', async () => {
     const store = useStore.getState();
-    const w = await act(() => store.createWorkout('Mon'));
+    const w = await act(() => store.createWorkout('U1'));
     expect(w).toBeTruthy();
     await act(() => useStore.getState().logSet(w.id, 'incline-press', { value: 20, reps: 10, unit: 'kgx2' }));
     const sets = useStore.getState().setsByWorkout[w.id];
@@ -63,12 +63,12 @@ describe('app boots and core flows work', () => {
     expect(document.querySelector('svg[aria-label="Front muscle map"]')).toBeTruthy();
     expect(document.querySelector('svg[aria-label="Back muscle map"]')).toBeTruthy();
 
-    // archive → period celebration overlay
+    // archive → mesocycle celebration overlay
     await act(() => useStore.getState().archiveAndStartNew());
-    await waitFor(() => text().includes('PERIOD COMPLETE'), 'period recap');
-    expect(text()).toContain('Workouts'.toUpperCase());
+    await waitFor(() => text().includes('MESOCYCLE COMPLETE'), 'mesocycle recap');
+    expect(text()).toContain('SESSIONS');
     await act(() => useStore.getState().dismissPeriodCelebration());
-    expect(text()).not.toContain('PERIOD COMPLETE');
+    expect(text()).not.toContain('MESOCYCLE COMPLETE');
 
     // fresh period with no workouts, but history exists → Metrics keeps the medal map,
     // and History defaults to the archived period that has the data

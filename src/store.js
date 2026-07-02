@@ -2,7 +2,7 @@
 import { create } from 'zustand';
 import { db, ensureSeeded } from './db.js';
 import { toKg, est1RM, isoDate, mondayOf, weekOfPeriod, dayKeyOf, medalForStandards, medalForProgression } from './calc.js';
-import { bestSet, dayPRs, buildLogs, dayVolume, workoutsDone, weekVolume, exerciseSeries } from './metrics.js';
+import { bestSet, dayPRs, buildLogs, dayVolume, workoutsDone, cycleVolume, exerciseSeries } from './metrics.js';
 
 const sortByOrder = (a, b) => (a.order ?? 0) - (b.order ?? 0);
 
@@ -12,7 +12,8 @@ export const useStore = create((set, get) => ({
   period: null,          // active period
   allPeriods: [],
   exercises: [],         // sorted by order, includes inactive
-  templates: {},         // day -> { day, block, exerciseIds }
+  variants: [],          // rotation variants sorted by order: [{ code, order, name, kind, exerciseIds }]
+  templates: {},         // legacy day -> { day, block, exerciseIds } (unused by the rotation UI)
   workouts: [],
   setsByWorkout: {},     // workoutId -> set rows
   bodyweight: [],        // sorted by date asc
@@ -25,10 +26,11 @@ export const useStore = create((set, get) => ({
     window.__gt_trace = 'init:start';
     await ensureSeeded();
     window.__gt_trace = 'init:seeded';
-    const [profile, allPeriods, exercises, templateRows, workouts, sets, bodyweight, prRows] = await Promise.all([
+    const [profile, allPeriods, exercises, variantRows, templateRows, workouts, sets, bodyweight, prRows] = await Promise.all([
       db.profile.get(1),
       db.periods.toArray(),
       db.exercises.toArray(),
+      db.routineVariants.toArray(),
       db.dayTemplates.toArray(),
       db.workouts.toArray(),
       db.sets.toArray(),
@@ -44,6 +46,7 @@ export const useStore = create((set, get) => ({
       allPeriods,
       period: allPeriods.find((p) => p.status === 'active') || null,
       exercises: exercises.sort(sortByOrder),
+      variants: variantRows.sort(sortByOrder),
       templates: Object.fromEntries(templateRows.map((t) => [t.day, t])),
       workouts,
       setsByWorkout,
@@ -53,6 +56,41 @@ export const useStore = create((set, get) => ({
   },
 
   exMap: () => Object.fromEntries(get().exercises.map((e) => [e.id, e])),
+  variantMap: () => Object.fromEntries(get().variants.map((v) => [v.code, v])),
+
+  /* ---------------- rotation ---------------- */
+  /** The variant queued next in the rotation (the one Today shows by default). */
+  currentVariant: () => {
+    const { period, variants } = get();
+    if (!variants.length) return null;
+    const pos = ((period?.rotationPos ?? 0) % variants.length + variants.length) % variants.length;
+    return variants[pos];
+  },
+
+  /** Variants finished in the active cycle (for the x/6 progress ring). Returns a Set of codes. */
+  cycleDone: () => {
+    const { period, workouts } = get();
+    const done = new Set();
+    if (!period) return done;
+    for (const w of workouts) {
+      if (w.periodId === period.id && w.finished && (w.cycle ?? 1) === (period.cycle ?? 1)) done.add(w.variant);
+    }
+    return done;
+  },
+
+  /** Point the rotation at a chosen variant; retarget today's unfinished workout to it. */
+  setActiveVariant: async (variantCode) => {
+    const idx = get().variants.findIndex((v) => v.code === variantCode);
+    if (idx < 0) return;
+    await get().updatePeriod({ rotationPos: idx });
+    const existing = get().todayWorkout();
+    if (existing && !existing.finished) {
+      const v = get().variantMap()[variantCode];
+      const w = { ...existing, variant: v.code, block: v.name, cycle: get().period.cycle ?? 1, entries: v.exerciseIds.map((exerciseId) => ({ exerciseId })) };
+      await db.workouts.put(w);
+      set({ workouts: get().workouts.map((x) => (x.id === w.id ? w : x)) });
+    }
+  },
 
   /* ---------------- profile / theme ---------------- */
   updateProfile: async (patch) => {
@@ -83,9 +121,9 @@ export const useStore = create((set, get) => ({
     const exMap = get().exMap();
     const logs = buildLogs(workouts, setsByWorkout, period.id, exMap);
     let volume = 0, sets = 0;
-    for (const w of Object.keys(logs)) {
-      volume += weekVolume(logs, +w);
-      for (const d of Object.keys(logs[w])) for (const ex of logs[w][d].exercises) sets += ex.sets.length;
+    for (const c of Object.keys(logs)) {
+      volume += cycleVolume(logs, +c);
+      for (const v of Object.keys(logs[c])) for (const ex of logs[c][v].exercises) sets += ex.sets.length;
     }
     const gains = [];
     for (const e of exercises) {
@@ -100,14 +138,16 @@ export const useStore = create((set, get) => ({
       const l = get().medalLevel(e.id);
       if (l >= 0) medals[l]++;
     }
-    return { weeks: period.weeks, startDate: period.startDate, workouts: workoutsDone(logs), sets, volume, gains: gains.slice(0, 3), medals };
+    // completed cycles = full U1→L3 passes already logged in this period
+    const cyclesDone = Math.max(0, (period.cycle ?? 1) - 1);
+    return { cycleGoal: period.cycleGoal || 6, cyclesDone, startDate: period.startDate, workouts: workoutsDone(logs), sets, volume, gains: gains.slice(0, 3), medals };
   },
 
   archiveAndStartNew: async () => {
     const { period } = get();
     const summary = get().periodSummary();
     if (period) await db.periods.update(period.id, { status: 'archived', endDate: isoDate() });
-    const fresh = { startDate: isoDate(mondayOf(new Date())), weeks: period?.weeks || 12, status: 'active' };
+    const fresh = { startDate: isoDate(mondayOf(new Date())), cycleGoal: period?.cycleGoal || 6, status: 'active', rotationPos: 0, cycle: 1 };
     fresh.id = await db.periods.add(fresh);
     const allPeriods = await db.periods.toArray();
     // only celebrate if the period actually had training in it
@@ -120,37 +160,25 @@ export const useStore = create((set, get) => ({
   /** Today's workout row, or null. */
   todayWorkout: () => get().workouts.find((w) => w.date === isoDate()) || null,
 
-  /** Create today's workout from a day template (used on first set or on override). */
-  createWorkout: async (templateDay) => {
-    const { period, templates } = get();
-    const tpl = templates[templateDay];
-    if (!period || !tpl) return null;
+  /** Create today's workout from a rotation variant (defaults to the queued one). */
+  createWorkout: async (variantCode) => {
+    const { period } = get();
+    const code = variantCode || get().currentVariant()?.code;
+    const v = get().variantMap()[code];
+    if (!period || !v) return null;
     const w = {
       date: isoDate(),
       periodId: period.id,
+      cycle: period.cycle ?? 1,
+      variant: v.code,
       week: weekOfPeriod(period.startDate),
       dayKey: dayKeyOf(),
-      templateDay,
-      block: tpl.block,
+      block: v.name,
       finished: false,
-      entries: tpl.exerciseIds.map((exerciseId) => ({ exerciseId })),
+      entries: v.exerciseIds.map((exerciseId) => ({ exerciseId })),
     };
     w.id = await db.workouts.add(w);
     set({ workouts: [...get().workouts, w] });
-    return w;
-  },
-
-  /** Override today's plan with another day's template. Entries become exactly that plan
-   *  (no merging); sets already logged for other exercises stay counted via buildLogs. */
-  overrideToday: async (templateDay) => {
-    const { templates } = get();
-    const existing = get().todayWorkout();
-    if (!existing) return get().createWorkout(templateDay);
-    const tpl = templates[templateDay];
-    if (!tpl) return existing;
-    const w = { ...existing, templateDay, block: tpl.block, entries: tpl.exerciseIds.map((exerciseId) => ({ exerciseId })) };
-    await db.workouts.put(w);
-    set({ workouts: get().workouts.map((x) => (x.id === w.id ? w : x)) });
     return w;
   },
 
@@ -179,12 +207,22 @@ export const useStore = create((set, get) => ({
     await db.workouts.put(next);
     const workouts = get().workouts.map((x) => (x.id === workoutId ? next : x));
     set({ workouts });
+    // Advance the rotation from the finished variant; wrapping past L3 starts a new cycle.
+    const { period, variants } = get();
+    if (period && variants.length) {
+      const n = variants.length;
+      const finIdx = variants.findIndex((v) => v.code === w.variant);
+      const base = finIdx >= 0 ? finIdx : (period.rotationPos ?? 0);
+      const newPos = (base + 1) % n;
+      const newCycle = (period.cycle ?? 1) + (newPos === 0 ? 1 : 0);
+      await get().updatePeriod({ rotationPos: newPos, cycle: newCycle });
+    }
     const logs = buildLogs(workouts, get().setsByWorkout, w.periodId, get().exMap());
-    const entry = (logs[w.week] || {})[w.dayKey];
+    const entry = (logs[w.cycle ?? 1] || {})[w.variant];
     return {
       sets: entry ? entry.exercises.reduce((a, x) => a + x.sets.length, 0) : 0,
       volume: dayVolume(entry),
-      prs: dayPRs(logs, w.week, w.dayKey),
+      prs: dayPRs(logs, w.cycle ?? 1, w.variant),
       workoutNum: workoutsDone(logs),
     };
   },
@@ -229,6 +267,22 @@ export const useStore = create((set, get) => ({
     await db.sets.bulkPut(renumbered.filter((s) => s.exerciseId === old.exerciseId));
     set({ setsByWorkout: { ...get().setsByWorkout, [workoutId]: renumbered } });
     return get().refreshPR(old.exerciseId);
+  },
+
+  /** Flip a set's back-off tag. Sets are auto-tagged as back-off when their realKg drops
+   *  below the exercise's first set; this stores an explicit override (backoffForce). */
+  toggleBackoff: async (setId, workoutId) => {
+    const rows = get().setsByWorkout[workoutId] || [];
+    const s = rows.find((x) => x.id === setId);
+    if (!s) return;
+    const sameEx = rows.filter((r) => r.exerciseId === s.exerciseId).sort((a, b) => a.n - b.n);
+    const idx = sameEx.findIndex((r) => r.id === setId);
+    const firstKg = sameEx.length ? sameEx[0].realKg : 0;
+    const auto = idx > 0 && s.realKg < firstKg;
+    const effective = s.backoffForce == null ? auto : s.backoffForce;
+    const row = { ...s, backoffForce: !effective };
+    await db.sets.put(row);
+    set({ setsByWorkout: { ...get().setsByWorkout, [workoutId]: rows.map((r) => (r.id === setId ? row : r)) } });
   },
 
   /** Recompute the stored personal record (+medal) for one exercise.
@@ -308,5 +362,14 @@ export const useStore = create((set, get) => ({
   saveTemplate: async (tpl) => {
     await db.dayTemplates.put(tpl);
     set({ templates: { ...get().templates, [tpl.day]: tpl } });
+  },
+
+  /** Persist an edited rotation variant (name / exercise list). */
+  saveVariant: async (variant) => {
+    await db.routineVariants.put(variant);
+    const list = get().variants.some((v) => v.code === variant.code)
+      ? get().variants.map((v) => (v.code === variant.code ? variant : v))
+      : [...get().variants, variant];
+    set({ variants: list.sort(sortByOrder) });
   },
 }));

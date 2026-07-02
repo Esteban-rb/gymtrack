@@ -2,7 +2,7 @@
 import { db } from './db.js';
 import { isoDate, setTonnage, toKg, splitUnit, joinUnit, parseISO, mondayOf, weekOfPeriod, dayKeyOf, addDays } from './calc.js';
 
-const TABLES = ['profile', 'bodyweightLog', 'periods', 'exercises', 'dayTemplates', 'workouts', 'sets', 'personalRecords'];
+const TABLES = ['profile', 'bodyweightLog', 'periods', 'exercises', 'dayTemplates', 'routineVariants', 'workouts', 'sets', 'personalRecords'];
 
 function download(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -15,7 +15,7 @@ function download(blob, filename) {
 
 /** Complete backup of every table — the file that can be re-imported. */
 export async function exportJSON() {
-  const dump = { app: 'gymtrack', schema: 1, exportedAt: new Date().toISOString() };
+  const dump = { app: 'gymtrack', schema: 2, exportedAt: new Date().toISOString() };
   for (const t of TABLES) dump[t] = await db.table(t).toArray();
   download(new Blob([JSON.stringify(dump, null, 1)], { type: 'application/json' }), `gymtrack-backup-${isoDate()}.json`);
 }
@@ -50,7 +50,7 @@ export async function exportXLSX() {
     .filter((r) => r.w)
     .sort((a, b) => a.w.date.localeCompare(b.w.date) || a.s.id - b.s.id)
     .map(({ s, w }) => ({
-      Date: w.date, Week: w.week, Day: w.dayKey, Block: w.block,
+      Date: w.date, Cycle: w.cycle ?? w.week, Variant: w.variant ?? w.dayKey, Block: w.block,
       Exercise: (exMap[s.exerciseId] || {}).name || s.exerciseId,
       Muscle: (exMap[s.exerciseId] || {}).muscle || '',
       Set: s.n, Value: s.value, Unit: s.unit, Reps: s.reps,
@@ -64,7 +64,7 @@ export async function exportXLSX() {
     Name: e.name, Muscle: e.muscle, Unit: e.unit, Basic: e.isBasic ? 'yes' : '', Standards: e.standards ? e.standards.join(' / ') : '',
   }))), 'Exercises');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(periods.map((p) => ({
-    Start: p.startDate, Weeks: p.weeks, Status: p.status, End: p.endDate || '',
+    Start: p.startDate, CycleGoal: p.cycleGoal ?? p.weeks, Cycle: p.cycle ?? '', Status: p.status, End: p.endDate || '',
   }))), 'Periods');
 
   const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });

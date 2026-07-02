@@ -1,19 +1,22 @@
 // GymTrack — derived metrics. All math runs on set.realKg (true load), never the raw value.
-import { DAY_KEYS, est1RM, setTonnage } from './calc.js';
+import { VARIANT_KEYS, est1RM, setTonnage } from './calc.js';
 
-/** Build a week/day view of a period: logs[week][dayKey] =
- *  { finished, workoutId, block, exercises: [{ id, name, sets: [...] }] } */
+/** Build a cycle/variant view of a period: logs[cycle][variant] =
+ *  { finished, workoutId, block, variant, date, exercises: [{ id, name, sets: [...] }] }.
+ *  Legacy weekday workouts fall back to cycle = old week, variant = old dayKey. */
 export function buildLogs(workouts, setsByWorkout, periodId, exMap) {
   const logs = {};
   for (const w of workouts) {
     if (w.periodId !== periodId) continue;
+    const cycle = w.cycle ?? w.week ?? 1;
+    const variant = w.variant ?? w.dayKey ?? '—';
     const sets = setsByWorkout[w.id] || [];
     const exercises = w.entries.map((en) => ({
       id: en.exerciseId,
       name: (exMap[en.exerciseId] || {}).name || en.exerciseId,
       sets: sets.filter((s) => s.exerciseId === en.exerciseId).sort((a, b) => a.n - b.n),
     }));
-    // sets logged for exercises no longer in the plan (e.g. after switching day) still count
+    // sets logged for exercises no longer in the plan (e.g. after swapping variant) still count
     const inPlan = new Set(w.entries.map((en) => en.exerciseId));
     for (const s of sets) {
       if (inPlan.has(s.exerciseId)) continue;
@@ -24,8 +27,8 @@ export function buildLogs(workouts, setsByWorkout, periodId, exMap) {
         sets: sets.filter((x) => x.exerciseId === s.exerciseId).sort((a, b) => a.n - b.n),
       });
     }
-    logs[w.week] = logs[w.week] || {};
-    logs[w.week][w.dayKey] = { finished: w.finished, workoutId: w.id, block: w.block, date: w.date, exercises };
+    logs[cycle] = logs[cycle] || {};
+    logs[cycle][variant] = { finished: w.finished, workoutId: w.id, block: w.block, variant, date: w.date, exercises };
   }
   return logs;
 }
@@ -37,19 +40,19 @@ export function dayVolume(entry) {
   return Math.round(v);
 }
 
-export function weekVolume(logs, w) {
+export function cycleVolume(logs, c) {
   let v = 0;
-  const wk = logs[w] || {};
-  for (const d of Object.keys(wk)) v += dayVolume(wk[d]);
+  const ck = logs[c] || {};
+  for (const d of Object.keys(ck)) v += dayVolume(ck[d]);
   return v;
 }
 
-/** Secondary volume metric (user formula): avg(realKg) × avg(reps) over the week's sets. */
-export function weekAvgLoad(logs, w) {
+/** Secondary volume metric (user formula): avg(realKg) × avg(reps) over the cycle's sets. */
+export function cycleAvgLoad(logs, c) {
   let kg = 0, reps = 0, n = 0;
-  const wk = logs[w] || {};
-  for (const d of Object.keys(wk)) {
-    for (const ex of wk[d].exercises) for (const s of ex.sets) { kg += s.realKg; reps += s.reps || 0; n++; }
+  const ck = logs[c] || {};
+  for (const d of Object.keys(ck)) {
+    for (const ex of ck[d].exercises) for (const s of ex.sets) { kg += s.realKg; reps += s.reps || 0; n++; }
   }
   return n ? Math.round((kg / n) * (reps / n)) : 0;
 }
@@ -60,17 +63,17 @@ export function workoutsDone(logs) {
   return n;
 }
 
-/** Best (heaviest realKg) set ever for an exercise, optionally up to a week. */
-export function bestSet(logs, exId, maxWeek) {
+/** Best (heaviest realKg) set ever for an exercise, optionally up to a cycle. */
+export function bestSet(logs, exId, maxCycle) {
   let best = null;
-  for (const w of Object.keys(logs)) {
-    if (maxWeek && +w > maxWeek) continue;
-    for (const d of Object.keys(logs[w])) {
-      for (const ex of logs[w][d].exercises) {
+  for (const c of Object.keys(logs)) {
+    if (maxCycle && +c > maxCycle) continue;
+    for (const d of Object.keys(logs[c])) {
+      for (const ex of logs[c][d].exercises) {
         if (ex.id !== exId) continue;
         for (const s of ex.sets) {
           if (!best || s.realKg > best.realKg || (s.realKg === best.realKg && s.reps > best.reps)) {
-            best = { ...s, week: +w, day: d };
+            best = { ...s, cycle: +c, variant: d };
           }
         }
       }
@@ -93,23 +96,23 @@ export function lastSetsGlobal(workouts, setsByWorkout, exId, beforeDate) {
 }
 
 /** Most recent previous session containing this exercise (reference + overload base). */
-export function lastSets(logs, exId, beforeWeek, beforeDay) {
-  const dayIdx = (d) => DAY_KEYS.indexOf(d);
+export function lastSets(logs, exId, beforeCycle, beforeVariant) {
+  const vIdx = (d) => { const i = VARIANT_KEYS.indexOf(d); return i < 0 ? 0 : i; };
   let found = null, foundKey = -1;
-  for (const w of Object.keys(logs)) {
-    for (const d of Object.keys(logs[w])) {
-      const key = +w * 10 + dayIdx(d);
-      if (+w > beforeWeek || (+w === beforeWeek && dayIdx(d) >= dayIdx(beforeDay))) continue;
-      const ex = logs[w][d].exercises.find((x) => x.id === exId);
-      if (ex && ex.sets.length && key > foundKey) { found = { week: +w, sets: ex.sets }; foundKey = key; }
+  for (const c of Object.keys(logs)) {
+    for (const d of Object.keys(logs[c])) {
+      const key = +c * 10 + vIdx(d);
+      if (+c > beforeCycle || (+c === beforeCycle && vIdx(d) >= vIdx(beforeVariant))) continue;
+      const ex = logs[c][d].exercises.find((x) => x.id === exId);
+      if (ex && ex.sets.length && key > foundKey) { found = { cycle: +c, sets: ex.sets }; foundKey = key; }
     }
   }
   return found;
 }
 
-/** New PRs achieved in a given day vs everything logged before that week. */
-export function dayPRs(logs, week, dayKey) {
-  const entry = (logs[week] || {})[dayKey];
+/** New PRs achieved in a given session vs everything logged before that cycle. */
+export function dayPRs(logs, cycle, variant) {
+  const entry = (logs[cycle] || {})[variant];
   if (!entry) return [];
   const prs = [];
   for (const ex of entry.exercises) {
@@ -117,10 +120,10 @@ export function dayPRs(logs, week, dayKey) {
     for (const s of ex.sets) if (!bestToday || s.realKg > bestToday.realKg) bestToday = s;
     if (!bestToday) continue;
     let prior = null;
-    for (const w of Object.keys(logs)) {
-      if (+w >= week) continue;
-      for (const d of Object.keys(logs[w])) {
-        const x = logs[w][d].exercises.find((q) => q.id === ex.id);
+    for (const c of Object.keys(logs)) {
+      if (+c >= cycle) continue;
+      for (const d of Object.keys(logs[c])) {
+        const x = logs[c][d].exercises.find((q) => q.id === ex.id);
         if (!x) continue;
         for (const s of x.sets) if (prior == null || s.realKg > prior) prior = s.realKg;
       }
@@ -130,12 +133,12 @@ export function dayPRs(logs, week, dayKey) {
   return prs;
 }
 
-/** Per-muscle averages for one week: sets count, avg realKg, avg reps. */
-export function muscleAverages(logs, week, exMap) {
+/** Per-muscle averages for one cycle: sets count, avg realKg, avg reps. */
+export function muscleAverages(logs, cycle, exMap) {
   const agg = {};
-  const wk = logs[week] || {};
-  for (const d of Object.keys(wk)) {
-    for (const ex of wk[d].exercises) {
+  const ck = logs[cycle] || {};
+  for (const d of Object.keys(ck)) {
+    for (const ex of ck[d].exercises) {
       const m = (exMap[ex.id] || {}).muscle || 'Other';
       agg[m] = agg[m] || { sets: 0, kg: 0, reps: 0, n: 0 };
       for (const s of ex.sets) { agg[m].sets++; agg[m].kg += s.realKg; agg[m].reps += s.reps || 0; agg[m].n++; }
@@ -162,34 +165,34 @@ export function muscleVolumeSplit(logs, exMap) {
   return Object.entries(agg).map(([muscle, kg]) => ({ muscle, kg: Math.round(kg) })).sort((a, b) => b.kg - a.kg);
 }
 
-/** Weekly best working weight (realKg) for an exercise. */
+/** Per-cycle best working weight (realKg) for an exercise. One point per cycle. */
 export function exerciseSeries(logs, exId) {
   const out = [];
-  const weeks = Object.keys(logs).map(Number).sort((a, b) => a - b);
-  for (const w of weeks) {
+  const cycles = Object.keys(logs).map(Number).sort((a, b) => a - b);
+  for (const c of cycles) {
     let best = null;
-    for (const d of Object.keys(logs[w])) {
-      const ex = logs[w][d].exercises.find((x) => x.id === exId);
+    for (const d of Object.keys(logs[c])) {
+      const ex = logs[c][d].exercises.find((x) => x.id === exId);
       if (!ex) continue;
       for (const s of ex.sets) if (best == null || s.realKg > best) best = s.realKg;
     }
-    if (best != null) out.push({ week: w, kg: +best.toFixed(1) });
+    if (best != null) out.push({ cycle: c, kg: +best.toFixed(1) });
   }
   return out;
 }
 
-/** Weekly best est-1RM series for an exercise. */
+/** Per-cycle best est-1RM series for an exercise. */
 export function oneRmSeries(logs, exId) {
   const out = [];
-  const weeks = Object.keys(logs).map(Number).sort((a, b) => a - b);
-  for (const w of weeks) {
+  const cycles = Object.keys(logs).map(Number).sort((a, b) => a - b);
+  for (const c of cycles) {
     let best = null;
-    for (const d of Object.keys(logs[w])) {
-      const ex = logs[w][d].exercises.find((x) => x.id === exId);
+    for (const d of Object.keys(logs[c])) {
+      const ex = logs[c][d].exercises.find((x) => x.id === exId);
       if (!ex) continue;
       for (const s of ex.sets) { const rm = est1RM(s.realKg, s.reps); if (best == null || rm > best) best = rm; }
     }
-    if (best != null) out.push({ week: w, kg: +best.toFixed(1) });
+    if (best != null) out.push({ cycle: c, kg: +best.toFixed(1) });
   }
   return out;
 }

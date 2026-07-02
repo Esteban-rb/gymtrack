@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { toKg, fmtWeight, splitUnit, joinUnit, est1RM, setTonnage, medalForStandards, medalForProgression, weekOfPeriod, dayKeyOf, mondayOf, parseISO } from './calc.js';
-import { dayVolume, weekAvgLoad, buildLogs, lastSetsGlobal } from './metrics.js';
+import { dayVolume, cycleAvgLoad, cycleVolume, buildLogs, lastSetsGlobal } from './metrics.js';
 
 describe('unit normalization → realKg', () => {
   it('kg passes through: "100 kg" → 100 kg', () => {
@@ -62,19 +62,26 @@ describe('tonnage uses realKg, not the entered value', () => {
     expect(dayVolume(entry)).toBe(1700); // 3 plates = 120 kg → 1200 + 500
   });
   it('secondary metric = avg(realKg) × avg(reps)', () => {
-    const logs = { 1: { Mon: { finished: true, exercises: [{ id: 'a', sets: [set(100, 'kg', 10), set(50, 'kg', 6)] }] } } };
-    expect(weekAvgLoad(logs, 1)).toBe(600); // avg 75 kg × avg 8 reps
+    const logs = { 1: { U1: { finished: true, exercises: [{ id: 'a', sets: [set(100, 'kg', 10), set(50, 'kg', 6)] }] } } };
+    expect(cycleAvgLoad(logs, 1)).toBe(600); // avg 75 kg × avg 8 reps
   });
 });
 
 describe('plan switching & history references', () => {
   const set = (exerciseId, realKg = 50) => ({ exerciseId, n: 1, reps: 10, value: realKg, unit: 'kg', realKg });
-  it('buildLogs keeps sets whose exercise left the plan (day override)', () => {
+  it('buildLogs keeps sets whose exercise left the plan (variant swap)', () => {
     const w = { id: 1, periodId: 1, week: 1, dayKey: 'Mon', date: '2026-06-08', finished: true, entries: [{ exerciseId: 'b' }] };
     const logs = buildLogs([w], { 1: [set('a')] }, 1, { a: { name: 'A' }, b: { name: 'B' } });
     const orphan = logs[1].Mon.exercises.find((x) => x.id === 'a');
     expect(orphan).toBeTruthy();
     expect(orphan.sets).toHaveLength(1);
+  });
+  it('buildLogs keys by cycle/variant when present, and cycleVolume sums the cycle', () => {
+    const w1 = { id: 1, periodId: 1, cycle: 2, variant: 'U1', date: '2026-07-01', finished: true, entries: [{ exerciseId: 'a' }] };
+    const w2 = { id: 2, periodId: 1, cycle: 2, variant: 'L1', date: '2026-07-02', finished: true, entries: [{ exerciseId: 'a' }] };
+    const logs = buildLogs([w1, w2], { 1: [set('a', 100)], 2: [set('a', 50)] }, 1, { a: { name: 'A' } });
+    expect(Object.keys(logs[2]).sort()).toEqual(['L1', 'U1']);
+    expect(cycleVolume(logs, 2)).toBe(1500); // (100×10) + (50×10)
   });
   it('lastSetsGlobal finds the most recent prior session across periods', () => {
     const workouts = [

@@ -6,6 +6,8 @@ export const KG_PER_PLATE = 40; // 1 plate = 20 kg per side = 40 kg total
 export const BASE_UNITS = ['kg', 'lb', 'plates'];
 export const MEDALS = ['Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond'];
 export const DAY_KEYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+// Upper/Lower rotation: fixed order of the 6 session variants. One full pass = 1 cycle.
+export const VARIANT_KEYS = ['U1', 'L1', 'U2', 'L2', 'U3', 'L3'];
 
 /* Unit strings: 'kg' | 'lb' | 'plates', optionally doubled per-side ('kgx2', 'lbx2').
  * Legacy 'x2' (pre-composite) means lb doubled. Plates are already a total, never ×2. */

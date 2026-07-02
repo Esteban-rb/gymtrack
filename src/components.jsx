@@ -261,9 +261,11 @@ export function Confetti({ run }) {
   return <canvas ref={ref} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 5 }} />;
 }
 
-/* ============ Period-complete celebration overlay ============ */
+/* ============ Mesocycle-complete celebration overlay (counts cycles, not weeks) ============ */
 export function PeriodFinishOverlay({ summary, onClose }) {
   const medalTotal = summary.medals.reduce((a, b) => a + b, 0);
+  const goal = summary.cycleGoal || 6;
+  const done = summary.cyclesDone ?? goal;
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'var(--bg)', display: 'flex', flexDirection: 'column', animation: 'gt-fade 0.25s ease', overflow: 'hidden' }}>
       <Confetti run={true} />
@@ -271,13 +273,24 @@ export function PeriodFinishOverlay({ summary, onClose }) {
         <div style={{ width: 86, height: 86, borderRadius: 999, background: 'var(--accent-soft)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'gt-pop 0.55s cubic-bezier(.2,1.4,.4,1)' }}>
           <GIcon name="trophy" size={42} stroke={2} />
         </div>
-        <div className="gt-display" style={{ marginTop: 22, fontSize: 32 }}>PERIOD COMPLETE</div>
+        <div className="gt-display" style={{ marginTop: 22, fontSize: 32 }}>MESOCYCLE COMPLETE</div>
         <div className="gt-sub" style={{ marginTop: 8, maxWidth: 280, lineHeight: 1.5 }}>
-          {summary.weeks} weeks since {fmtDate(summary.startDate)}. Here's what you built.
+          {done} Upper/Lower cycles since {fmtDate(summary.startDate)}. Here's what you built.
         </div>
 
-        <div style={{ display: 'flex', gap: 10, marginTop: 26, width: '100%', maxWidth: 340 }}>
-          {[['Workouts', summary.workouts], ['Sets', summary.sets], ['Tonnage', (summary.volume / 1000).toFixed(1) + 't']].map(([l, v]) => (
+        {/* big cycle count */}
+        <div className="gt-card" style={{ width: '100%', maxWidth: 320, marginTop: 24, padding: 20 }}>
+          <div className="gt-num" style={{ fontSize: 56, lineHeight: 1, color: 'var(--accent)' }}>{done}<span style={{ fontSize: 22, color: 'var(--text-3)' }}> / {goal}</span></div>
+          <div className="gt-label" style={{ marginTop: 6 }}>Cycles completed</div>
+          <div style={{ display: 'flex', gap: 5, marginTop: 14 }}>
+            {Array.from({ length: goal }, (_, i) => (
+              <div key={i} style={{ flex: 1, height: 8, borderRadius: 999, background: i < done ? 'var(--accent)' : 'var(--input-bg)' }} />
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 12, width: '100%', maxWidth: 320 }}>
+          {[['Sessions', summary.workouts], ['Sets', summary.sets], ['Tonnage', (summary.volume / 1000).toFixed(1) + 't']].map(([l, v]) => (
             <div key={l} className="gt-card" style={{ flex: 1, padding: '14px 8px' }}>
               <div className="gt-num" style={{ fontSize: 24 }}>{v}</div>
               <div className="gt-micro" style={{ marginTop: 3 }}>{l.toUpperCase()}</div>
@@ -286,7 +299,7 @@ export function PeriodFinishOverlay({ summary, onClose }) {
         </div>
 
         {summary.gains.length > 0 && (
-          <div className="gt-card" style={{ marginTop: 12, width: '100%', maxWidth: 340, padding: '14px 16px', textAlign: 'left' }}>
+          <div className="gt-card" style={{ marginTop: 12, width: '100%', maxWidth: 320, padding: '14px 16px', textAlign: 'left' }}>
             <div className="gt-label" style={{ color: 'var(--accent)', marginBottom: 8 }}>Top progress</div>
             {summary.gains.map((g) => (
               <div key={g.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0' }}>
@@ -299,7 +312,7 @@ export function PeriodFinishOverlay({ summary, onClose }) {
         )}
 
         {medalTotal > 0 && (
-          <div className="gt-card" style={{ marginTop: 12, width: '100%', maxWidth: 340, padding: '14px 16px' }}>
+          <div className="gt-card" style={{ marginTop: 12, width: '100%', maxWidth: 320, padding: '14px 16px' }}>
             <div className="gt-label" style={{ marginBottom: 10 }}>Medal cabinet</div>
             <div style={{ display: 'flex', justifyContent: 'space-around' }}>
               {summary.medals.map((count, lvl) => count > 0 && (
@@ -313,7 +326,7 @@ export function PeriodFinishOverlay({ summary, onClose }) {
         )}
       </div>
       <div style={{ position: 'absolute', left: 20, right: 20, bottom: 28, zIndex: 7 }}>
-        <button className="gt-btn gt-btn-primary" style={{ width: '100%', minHeight: 54, fontSize: 16 }} onClick={onClose}>Start the next one</button>
+        <button className="gt-btn gt-btn-primary" style={{ width: '100%', minHeight: 54, fontSize: 16 }} onClick={onClose}>Start the next mesocycle</button>
       </div>
     </div>
   );
@@ -321,12 +334,27 @@ export function PeriodFinishOverlay({ summary, onClose }) {
 
 /* ============ Tab bar ============ */
 export const TABS = [
-  { id: 'today', label: 'Today', icon: 'dumbbell' },
-  { id: 'metrics', label: 'Metrics', icon: 'chart' },
-  { id: 'records', label: 'Records', icon: 'medal' },
-  { id: 'history', label: 'History', icon: 'clock' },
-  { id: 'settings', label: 'Settings', icon: 'gear' },
+  { id: 'today', label: 'Today' },
+  { id: 'metrics', label: 'Metrics' },
+  { id: 'records', label: 'Records' },
+  { id: 'history', label: 'History' },
+  { id: 'settings', label: 'Settings' },
 ];
+// Redesigned bottom-bar icons (from the Claude Design handoff).
+function TabIcon({ id }) {
+  const glyph = {
+    today: <path d="M6.5 9.3v5.4M9 7.8v8.4M15 7.8v8.4M17.5 9.3v5.4M9 12h6" />,
+    metrics: <g><path d="M4 18.5h15" opacity="0.45" /><path d="M5 14.4l4.3-4.2 3 2.6 5.2-6" /><circle cx="17.5" cy="6.8" r="1.55" fill="currentColor" stroke="none" /></g>,
+    records: <g><path d="M9.4 9.7 7.4 3.5M14.6 9.7 16.6 3.5" /><circle cx="12" cy="14.5" r="5.2" /><path d="M12 11.6l1 2 2.2.3-1.6 1.55.38 2.2L12 16.6l-1.98 1.05.38-2.2-1.6-1.55 2.2-.3z" /></g>,
+    history: <g><path d="M4.2 11.4a8 8 0 1 0 2.2-5.9" /><path d="M3.4 4.2v3.6h3.6" /><path d="M12 8.4V12l2.8 1.8" /></g>,
+    settings: <g><path d="M4 8h8M16.5 8H20" /><circle cx="14.2" cy="8" r="2.2" /><path d="M4 16h3.8M12.3 16H20" /><circle cx="9.8" cy="16" r="2.2" /></g>,
+  }[id];
+  return (
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {glyph}
+    </svg>
+  );
+}
 export function TabBar({ tab, onChange }) {
   return (
     <div style={{ position: 'fixed', left: 14, right: 14, bottom: 'calc(14px + env(safe-area-inset-bottom))', zIndex: 40, display: 'flex', gap: 4, padding: 6, borderRadius: 999, background: 'var(--tabbar-bg)', border: '1px solid var(--border)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', boxShadow: '0 10px 30px rgba(0,0,0,0.35)', maxWidth: 520, margin: '0 auto' }}>
@@ -340,7 +368,7 @@ export function TabBar({ tab, onChange }) {
             color: on ? 'var(--on-accent)' : 'var(--text-2)', transition: 'background 0.2s ease, color 0.2s ease',
             WebkitTapHighlightColor: 'transparent',
           }}>
-            <GIcon name={t.icon} size={21} />
+            <TabIcon id={t.id} />
             <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '0.02em', fontFamily: 'Manrope' }}>{t.label}</span>
           </button>
         );

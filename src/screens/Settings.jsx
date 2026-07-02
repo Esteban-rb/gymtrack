@@ -1,8 +1,8 @@
-// GymTrack — Settings: period, profile, routine editor, medal thresholds, units, backup, theme.
+// GymTrack — Settings: mesocycle, profile, rotation editor, medal thresholds, units, backup, theme.
 import React, { useRef, useState } from 'react';
 import { useStore } from '../store.js';
 import { MUSCLES } from '../db.js';
-import { MEDALS, fmtDate, isoDate, parseISO, addDays, DAY_KEYS } from '../calc.js';
+import { MEDALS, fmtDate } from '../calc.js';
 import { exportJSON, exportXLSX, importJSON, importXLSX } from '../backup.js';
 import { GIcon, Stepper, UnitChips, Sheet, SectionHead } from '../components.jsx';
 
@@ -21,9 +21,9 @@ function SettingRow({ label, sub, right, onClick }) {
 
 export default function SettingsScreen() {
   const store = useStore();
-  const { profile, period, templates, exercises } = store;
-  const [routineDay, setRoutineDay] = useState('Mon');
-  const [blockDraft, setBlockDraft] = useState(null); // editing buffer for the day's name
+  const { profile, period, variants, exercises } = store;
+  const [routineVar, setRoutineVar] = useState(variants[0]?.code || 'U1');
+  const [nameDraft, setNameDraft] = useState(null); // editing buffer for the variant's name
   const [editingEx, setEditingEx] = useState(null);   // exercise being edited (draft copy)
   const [addSheet, setAddSheet] = useState(false);
   const [addQuery, setAddQuery] = useState('');
@@ -32,19 +32,19 @@ export default function SettingsScreen() {
   const [importMsg, setImportMsg] = useState(null);
   const fileRef = useRef(null);
 
-  const tpl = templates[routineDay] || { day: routineDay, block: '—', exerciseIds: [] };
+  const vmap = Object.fromEntries(variants.map((v) => [v.code, v]));
+  const variant = vmap[routineVar] || variants[0] || { code: routineVar, name: '—', exerciseIds: [] };
   const exMap = Object.fromEntries(exercises.map((e) => [e.id, e]));
-  const endDate = period ? isoDate(addDays(parseISO(period.startDate), period.weeks * 7 - 3)) : null;
 
   const moveExercise = async (idx, dir) => {
-    const ids = [...tpl.exerciseIds];
+    const ids = [...variant.exerciseIds];
     const j = idx + dir;
     if (j < 0 || j >= ids.length) return;
     [ids[idx], ids[j]] = [ids[j], ids[idx]];
-    await store.saveTemplate({ ...tpl, exerciseIds: ids });
+    await store.saveVariant({ ...variant, exerciseIds: ids });
   };
   const removeExercise = async (idx) => {
-    await store.saveTemplate({ ...tpl, exerciseIds: tpl.exerciseIds.filter((_, i) => i !== idx) });
+    await store.saveVariant({ ...variant, exerciseIds: variant.exerciseIds.filter((_, i) => i !== idx) });
   };
 
   const onImportFile = async (e) => {
@@ -60,7 +60,7 @@ export default function SettingsScreen() {
         // recompute baselines/PRs/medals for everything the file touched, silently
         for (const id of affected) await store.refreshPR(id);
         store.dismissMedal();
-        setImportMsg(`Imported ${counts.sets} sets · ${counts.workouts} workouts · ${counts.exercises} new exercises` + (counts.skipped ? ` · ${counts.skipped} duplicates skipped` : '') + ' ✓ — see History & Records');
+        setImportMsg(`Imported ${counts.sets} sets · ${counts.workouts} sessions · ${counts.exercises} new exercises` + (counts.skipped ? ` · ${counts.skipped} duplicates skipped` : '') + ' ✓ — see History & Records');
       } else {
         if (!window.confirm('Importing a JSON backup replaces ALL current data. Continue?')) return;
         setImportMsg('Importing ' + file.name + '…');
@@ -76,28 +76,28 @@ export default function SettingsScreen() {
   return (
     <div className="gt-scroll" style={{ height: '100%', padding: '18px 16px 150px' }}>
       <div className="gt-h1" style={{ marginBottom: 4 }}>Settings</div>
-      <div className="gt-sub">Period, routine & data</div>
+      <div className="gt-sub">Mesocycle, routine & data</div>
 
-      <SectionHead>Period</SectionHead>
+      <SectionHead>Mesocycle</SectionHead>
       <div className="gt-card" style={{ padding: '4px 16px' }}>
         <SettingRow label="Start date" right={<div className="gt-num" style={{ fontSize: 15 }}>{period ? fmtDate(period.startDate) : '—'}</div>} />
-        <SettingRow label="Duration" right={
+        <SettingRow label="Current cycle" right={<div className="gt-num" style={{ fontSize: 15 }}>{period ? (period.cycle ?? 1) : '—'}</div>} />
+        <SettingRow label="Cycle goal" sub="1 cycle = one full pass through the 6 variants" right={
           <div style={{ display: 'flex', gap: 5 }}>
-            {[8, 12, 16].map((w) => <button key={w} className={'gt-chip' + (period?.weeks === w ? ' on' : '')} onClick={() => store.updatePeriod({ weeks: w })}>{w} wk</button>)}
+            {[4, 6, 8].map((c) => <button key={c} className={'gt-chip' + ((period?.cycleGoal || 6) === c ? ' on' : '')} onClick={() => store.updatePeriod({ cycleGoal: c })}>{c}</button>)}
           </div>
         } />
-        <SettingRow label="Ends" right={<div className="gt-num" style={{ fontSize: 15 }}>{endDate ? fmtDate(endDate) : '—'}</div>} />
         <div style={{ padding: '14px 0' }}>
           {confirmArchive ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-              <div className="gt-sub" style={{ lineHeight: 1.5 }}>Archive the current period and start a fresh one today? History is kept for comparison.</div>
+              <div className="gt-sub" style={{ lineHeight: 1.5 }}>Archive the current mesocycle and start a fresh one today? History is kept for comparison.</div>
               <div style={{ display: 'flex', gap: 9 }}>
                 <button className="gt-btn gt-btn-ghost" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={() => setConfirmArchive(false)}>Cancel</button>
                 <button className="gt-btn gt-btn-primary" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={async () => { await store.archiveAndStartNew(); setConfirmArchive(false); }}>Confirm</button>
               </div>
             </div>
           ) : (
-            <button className="gt-btn gt-btn-ghost" style={{ width: '100%', minHeight: 46, fontSize: 13.5 }} onClick={() => setConfirmArchive(true)}>End & archive period · start new</button>
+            <button className="gt-btn gt-btn-ghost" style={{ width: '100%', minHeight: 46, fontSize: 13.5 }} onClick={() => setConfirmArchive(true)}>End & archive · start new</button>
           )}
         </div>
       </div>
@@ -113,32 +113,32 @@ export default function SettingsScreen() {
         } />
       </div>
 
-      <SectionHead>Routine</SectionHead>
+      <SectionHead>Routine · rotation</SectionHead>
       <div className="gt-card" style={{ padding: '14px 16px' }}>
         <div className="gt-scroll" style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
-          {DAY_KEYS.map((d) => (
-            <button key={d} className={'gt-chip' + (routineDay === d ? ' on' : '')} style={{ flexShrink: 0 }} onClick={() => { setRoutineDay(d); setBlockDraft(null); }}>{d}{templates[d] ? ' · ' + templates[d].block : ''}</button>
+          {variants.map((v) => (
+            <button key={v.code} className={'gt-chip' + (routineVar === v.code ? ' on' : '')} style={{ flexShrink: 0 }} onClick={() => { setRoutineVar(v.code); setNameDraft(null); }}>{v.code}</button>
           ))}
         </div>
-        <div className="gt-micro" style={{ margin: '12px 0 5px 4px' }}>{routineDay.toUpperCase()} · DAY NAME</div>
+        <div className="gt-micro" style={{ margin: '12px 0 5px 4px' }}>{variant.code} · NAME</div>
         <input
           className="gt-input"
-          value={blockDraft != null ? blockDraft : (templates[routineDay]?.block || '')}
-          placeholder="e.g. Push-Pull, Legs, Upper…"
-          onChange={(e) => setBlockDraft(e.target.value)}
+          value={nameDraft != null ? nameDraft : (variant.name || '')}
+          placeholder="e.g. Upper 1, Lower 2…"
+          onChange={(e) => setNameDraft(e.target.value)}
           onBlur={async () => {
-            const name = (blockDraft || '').trim();
-            if (blockDraft == null || !name || name === templates[routineDay]?.block) { setBlockDraft(null); return; }
-            await store.saveTemplate({ ...tpl, block: name });
-            setBlockDraft(null);
+            const name = (nameDraft || '').trim();
+            if (nameDraft == null || !name || name === variant.name) { setNameDraft(null); return; }
+            await store.saveVariant({ ...variant, name });
+            setNameDraft(null);
           }}
           onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
         <div style={{ marginTop: 10 }}>
-          {tpl.exerciseIds.map((id, idx) => {
+          {variant.exerciseIds.map((id, idx) => {
             const e = exMap[id];
             if (!e) return null;
             return (
-              <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', borderBottom: '1px solid var(--border)' }}>
+              <div key={id + idx} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', borderBottom: '1px solid var(--border)' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <button className="gt-iconbtn" style={{ width: 26, height: 22, minWidth: 26, borderRadius: 8, color: 'var(--text-3)' }} onClick={() => moveExercise(idx, -1)} aria-label="move up"><GIcon name="chevU" size={12} stroke={2.6} /></button>
                   <button className="gt-iconbtn" style={{ width: 26, height: 22, minWidth: 26, borderRadius: 8, color: 'var(--text-3)' }} onClick={() => moveExercise(idx, 1)} aria-label="move down"><GIcon name="chevD" size={12} stroke={2.6} /></button>
@@ -192,13 +192,13 @@ export default function SettingsScreen() {
         </>) : null}
       </Sheet>
 
-      {/* Add exercise to day */}
-      <Sheet open={addSheet} onClose={() => setAddSheet(false)} title={'Add to ' + routineDay}>
+      {/* Add exercise to variant */}
+      <Sheet open={addSheet} onClose={() => setAddSheet(false)} title={'Add to ' + variant.code}>
         <input className="gt-input" value={addQuery} onChange={(e) => setAddQuery(e.target.value)} placeholder="Search or type a new exercise…" />
         <div style={{ marginTop: 10 }}>
-          {exercises.filter((e) => e.active !== false && !tpl.exerciseIds.includes(e.id) && e.name.toLowerCase().includes(addQuery.toLowerCase())).slice(0, 12).map((e) => (
+          {exercises.filter((e) => e.active !== false && !variant.exerciseIds.includes(e.id) && e.name.toLowerCase().includes(addQuery.toLowerCase())).slice(0, 12).map((e) => (
             <button key={e.id} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '11px 4px', background: 'none', border: 'none', borderBottom: '1px solid var(--border)', font: 'inherit', color: 'inherit', textAlign: 'left', cursor: 'pointer' }}
-              onClick={async () => { await store.saveTemplate({ ...tpl, exerciseIds: [...tpl.exerciseIds, e.id] }); setAddSheet(false); }}>
+              onClick={async () => { await store.saveVariant({ ...variant, exerciseIds: [...variant.exerciseIds, e.id] }); setAddSheet(false); }}>
               <div style={{ flex: 1 }}>
                 <div className="gt-body" style={{ fontWeight: 700 }}>{e.name}</div>
                 <div className="gt-micro">{e.muscle}</div>
@@ -210,7 +210,7 @@ export default function SettingsScreen() {
         {addQuery.trim().length > 1 && (
           <button className="gt-btn gt-btn-ghost" style={{ width: '100%', marginTop: 12 }} onClick={async () => {
             const created = await store.addExercise({ name: addQuery.trim(), muscle: 'Other', unit: 'kg' });
-            await store.saveTemplate({ ...tpl, exerciseIds: [...tpl.exerciseIds, created.id] });
+            await store.saveVariant({ ...variant, exerciseIds: [...variant.exerciseIds, created.id] });
             setAddSheet(false);
           }}>
             <GIcon name="plus" size={16} />Create “{addQuery.trim()}”

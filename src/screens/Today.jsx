@@ -1,14 +1,22 @@
-// GymTrack — Today: auto-loaded day plan, quick set logging, overload hints, finish celebration.
+// GymTrack — Today: rotation-driven session plan, quick set logging, back-off tags, finish celebration.
 import React, { useMemo, useState } from 'react';
 import { useStore } from '../store.js';
 import { buildLogs, dayVolume, lastSetsGlobal } from '../metrics.js';
-import { fmtWeight, suggestOverload, splitUnit, weekOfPeriod, dayKeyOf, isoDate, DAY_KEYS } from '../calc.js';
+import { fmtWeight, suggestOverload, splitUnit, isoDate } from '../calc.js';
 import { GIcon, Stepper, UnitChips, Sheet, Confetti, EmptyState } from '../components.jsx';
 
 const haptic = () => { try { navigator.vibrate && navigator.vibrate(12); } catch { /* unsupported */ } };
 
+/* Effective back-off state of a set: auto = realKg dropped below the exercise's first set,
+ * unless the user has pinned it with backoffForce. */
+function isBackoff(set, index, firstKg) {
+  const auto = index > 0 && set.realKg < firstKg;
+  return set.backoffForce == null ? auto : set.backoffForce;
+}
+
 /* ---------- One logged set row ---------- */
-function LoggedSetRow({ set, onEdit, onDelete, editing }) {
+function LoggedSetRow({ set, index, firstKg, onEdit, onDelete, onToggleBackoff, editing }) {
+  const backoff = isBackoff(set, index, firstKg);
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 2px' }}>
       <div style={{ width: 26, height: 26, borderRadius: 999, background: 'var(--success-soft)', color: 'var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -17,6 +25,21 @@ function LoggedSetRow({ set, onEdit, onDelete, editing }) {
       <div className="gt-num" style={{ fontSize: 17, flex: 1 }}>
         {fmtWeight(set.value, set.unit)} <span style={{ color: 'var(--text-2)', fontWeight: 500 }}>× {set.reps}</span>
       </div>
+      {index > 0 && (
+        <button
+          onClick={onToggleBackoff}
+          aria-label="toggle back-off"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 3, height: 24, padding: '0 9px', borderRadius: 999,
+            whiteSpace: 'nowrap', fontFamily: 'Manrope, sans-serif', fontSize: 10.5, fontWeight: 700, cursor: 'pointer',
+            background: backoff ? 'color-mix(in srgb, var(--warning) 18%, transparent)' : 'transparent',
+            color: backoff ? 'var(--warning)' : 'var(--text-3)',
+            border: '1px solid ' + (backoff ? 'color-mix(in srgb, var(--warning) 45%, transparent)' : 'var(--border)'),
+            opacity: backoff ? 1 : 0.7,
+          }}>
+          <GIcon name="chevD" size={11} stroke={2.4} />back-off
+        </button>
+      )}
       <button className="gt-iconbtn" style={{ width: 36, height: 36, minWidth: 36, background: editing ? 'var(--accent-soft)' : 'var(--surface-2)', color: editing ? 'var(--accent)' : 'var(--text-2)' }} onClick={onEdit} aria-label="edit set">
         <GIcon name="edit" size={15} />
       </button>
@@ -54,12 +77,13 @@ function LogRow({ draft, setDraft, onLog, editing }) {
 }
 
 /* ---------- Exercise card ---------- */
-function ExerciseCard({ exercise, sets, last, onLogSet, onEditSet, onDeleteSet, onSwap, justLogged }) {
+function ExerciseCard({ exercise, sets, last, onLogSet, onEditSet, onDeleteSet, onToggleBackoff, onSwap, justLogged }) {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const editingSet = editingId != null ? sets.find((s) => s.id === editingId) : null;
   const topLast = last ? last.sets.reduce((a, b) => (b.realKg > a.realKg ? b : a), last.sets[0]) : null;
   const sugg = suggestOverload(topLast);
+  const firstKg = sets.length ? sets[0].realKg : 0;
 
   const defaultDraft = () => {
     if (editingSet) return { value: editingSet.value, reps: editingSet.reps, unit: editingSet.unit };
@@ -96,8 +120,9 @@ function ExerciseCard({ exercise, sets, last, onLogSet, onEditSet, onDeleteSet, 
 
       {sets.length > 0 && (
         <div style={{ marginTop: 7 }}>
-          {sets.map((s) => (
-            <LoggedSetRow key={s.id} set={s} editing={editingId === s.id}
+          {sets.map((s, i) => (
+            <LoggedSetRow key={s.id} set={s} index={i} firstKg={firstKg} editing={editingId === s.id}
+              onToggleBackoff={() => onToggleBackoff(s)}
               onEdit={() => { setEditingId(editingId === s.id ? null : s.id); setOpen(true); }}
               onDelete={() => { onDeleteSet(s); if (editingId === s.id) setEditingId(null); }} />
           ))}
@@ -131,7 +156,7 @@ function FinishOverlay({ summary, onClose }) {
           <GIcon name="check" size={42} stroke={2.6} />
         </div>
         <div className="gt-display" style={{ marginTop: 22, fontSize: 34 }}>WORKOUT CRUSHED</div>
-        <div className="gt-sub" style={{ marginTop: 8, maxWidth: 240, lineHeight: 1.5 }}>That's {summary.workoutNum} workouts this period. Keep stacking wins.</div>
+        <div className="gt-sub" style={{ marginTop: 8, maxWidth: 240, lineHeight: 1.5 }}>That's {summary.workoutNum} workouts this mesocycle. Keep stacking wins.</div>
         <div style={{ display: 'flex', gap: 10, marginTop: 28, width: '100%', maxWidth: 320 }}>
           {[['Sets', summary.sets], ['Volume', (summary.volume / 1000).toFixed(1) + 't'], ['New PRs', summary.prs.length]].map(([l, v]) => (
             <div key={l} className="gt-card" style={{ flex: 1, padding: '14px 8px' }}>
@@ -162,22 +187,27 @@ function FinishOverlay({ summary, onClose }) {
 /* ---------- Today screen ---------- */
 export default function TodayScreen() {
   const store = useStore();
-  const { period, templates, workouts, setsByWorkout, exercises } = store;
+  const { period, variants, workouts, setsByWorkout, exercises } = store;
   const exMap = useMemo(() => Object.fromEntries(exercises.map((e) => [e.id, e])), [exercises]);
 
   const [swapIdx, setSwapIdx] = useState(null);
   const [swapQuery, setSwapQuery] = useState('');
-  const [dayPicker, setDayPicker] = useState(false);
-  const [previewDay, setPreviewDay] = useState(null);
+  const [variantSheet, setVariantSheet] = useState(false);
   const [celebrate, setCelebrate] = useState(null);
   const [justLogged, setJustLogged] = useState(null);
 
   const workout = store.todayWorkout();
-  const week = period ? weekOfPeriod(period.startDate) : 0;
-  const todayKey = dayKeyOf();
-  const templateDay = workout ? workout.templateDay : (templates[todayKey] ? todayKey : null);
-  const tpl = templateDay ? templates[templateDay] : null;
-  const entries = workout ? workout.entries : (tpl ? tpl.exerciseIds.map((exerciseId) => ({ exerciseId })) : []);
+  const pending = store.currentVariant();
+  const activeCode = workout ? workout.variant : pending?.code;
+  const variantMap = store.variantMap();
+  const variant = activeCode ? variantMap[activeCode] : null;
+  const cycle = period?.cycle ?? 1;
+  const cycleGoal = period?.cycleGoal || 6;
+
+  const doneSet = store.cycleDone();
+  const doneCount = doneSet.size;
+
+  const entries = workout ? workout.entries : (variant ? variant.exerciseIds.map((exerciseId) => ({ exerciseId })) : []);
   const todaySets = workout ? (setsByWorkout[workout.id] || []) : [];
   const logs = useMemo(
     () => (period ? buildLogs(workouts, setsByWorkout, period.id, exMap) : {}),
@@ -185,9 +215,9 @@ export default function TodayScreen() {
   );
   const totalSets = todaySets.length;
   const finished = !!workout?.finished;
-  const overPeriod = period && week > period.weeks;
+  const overGoal = period && cycle > cycleGoal;
 
-  const ensureWorkout = async () => workout || (await store.createWorkout(templateDay));
+  const ensureWorkout = async () => workout || (await store.createWorkout(activeCode));
 
   const logSet = async (i, draft) => {
     const w = await ensureWorkout();
@@ -203,14 +233,11 @@ export default function TodayScreen() {
     if (summary) { setCelebrate(summary); haptic(); }
   };
 
-  const dateLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
-  const [weekday, mday] = dateLabel.split(', ');
-
   if (!period) {
     return (
       <div className="gt-scroll" style={{ height: '100%', padding: '18px 16px 150px' }}>
         <div className="gt-card" style={{ marginTop: 40 }}>
-          <EmptyState icon="calendar" title="No active period" body="Start a training period to begin logging workouts." cta="Start period" onCta={() => store.archiveAndStartNew()} />
+          <EmptyState icon="calendar" title="No active mesocycle" body="Start a mesocycle to begin logging your sessions." cta="Start" onCta={() => store.archiveAndStartNew()} />
         </div>
       </div>
     );
@@ -219,31 +246,43 @@ export default function TodayScreen() {
   return (
     <div className="gt-scroll" style={{ height: '100%', padding: '18px 16px 150px' }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
-        <div>
-          <div className="gt-label" style={{ color: 'var(--accent)' }}>Week {Math.min(week, period.weeks)} of {period.weeks}</div>
-          <div className="gt-h1" style={{ marginTop: 5 }}>{weekday}{tpl ? ' · ' + tpl.block : ''}</div>
-          <div className="gt-sub" style={{ marginTop: 3 }}>{mday}{entries.length ? ' · ' + entries.length + ' exercises' : ''}</div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button className="gt-iconbtn" style={{ width: 38, height: 38, minWidth: 38, color: 'var(--text-2)' }} onClick={() => setDayPicker(true)} aria-label="change day plan"><GIcon name="calendar" size={17} /></button>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, paddingTop: 2 }}>
-            <div className="gt-num" style={{ fontSize: 24 }}>{totalSets}</div>
-            <div className="gt-micro">SETS</div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+        <div style={{ minWidth: 0 }}>
+          <div className="gt-label" style={{ color: 'var(--accent)' }}>Cycle {cycle}</div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 5 }}>
+            <div className="gt-num" style={{ fontSize: 34, lineHeight: 1 }}>{variant?.code || '—'}</div>
+            <button onClick={() => setVariantSheet(true)} aria-label="change variant" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, height: 30, padding: '0 11px', borderRadius: 999, background: 'var(--surface-2)', border: '1px solid var(--border-strong)', color: 'var(--text-2)', fontFamily: 'Manrope, sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
+              Change<GIcon name="swap" size={13} stroke={1.9} />
+            </button>
           </div>
+          <div className="gt-sub" style={{ marginTop: 5 }}>{variant?.name || 'No routine'}{entries.length ? ' · ' + entries.length + ' exercises' : ''}</div>
         </div>
-      </div>
-      <div style={{ margin: '12px 0 18px' }}>
-        <div style={{ height: 6, borderRadius: 999, background: 'var(--input-bg)', overflow: 'hidden' }}>
-          <div style={{ width: Math.min(100, ((week - 1 + (DAY_KEYS.indexOf(todayKey) + 1) / 7) / period.weeks) * 100) + '%', height: '100%', borderRadius: 999, background: 'var(--accent)' }} />
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, paddingTop: 2 }}>
+          <div className="gt-num" style={{ fontSize: 24 }}>{totalSets}</div>
+          <div className="gt-micro">SETS</div>
         </div>
       </div>
 
-      {overPeriod && (
+      {/* Cycle progress: variants completed x/6 */}
+      <div style={{ margin: '18px 0 20px' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
+          <div className="gt-label" style={{ color: 'var(--text-2)' }}>Cycle progress</div>
+          <div className="gt-num" style={{ fontSize: 14, color: 'var(--text-2)' }}>{doneCount}<span style={{ color: 'var(--text-3)' }}> / {variants.length || 6} done</span></div>
+        </div>
+        <div style={{ display: 'flex', gap: 5 }}>
+          {variants.map((v) => {
+            const done = doneSet.has(v.code);
+            const isActive = v.code === activeCode && !done;
+            return <div key={v.code} title={v.code} style={{ flex: 1, height: 7, borderRadius: 999, background: done ? 'var(--accent)' : 'var(--input-bg)', boxShadow: isActive ? 'inset 0 0 0 1.5px var(--accent)' : undefined }} />;
+          })}
+        </div>
+      </div>
+
+      {overGoal && (
         <div className="gt-card" style={{ padding: 16, marginBottom: 12, borderColor: 'var(--warning)' }}>
-          <div className="gt-h2" style={{ fontSize: 15 }}>Period complete 🎉</div>
-          <div className="gt-sub" style={{ marginTop: 4, lineHeight: 1.5 }}>You finished the {period.weeks}-week period. Archive it and start a new one — history stays available for comparison.</div>
-          <button className="gt-btn gt-btn-primary" style={{ width: '100%', marginTop: 12, minHeight: 46 }} onClick={() => store.archiveAndStartNew()}>Archive & start new period</button>
+          <div className="gt-h2" style={{ fontSize: 15 }}>Mesocycle complete 🎉</div>
+          <div className="gt-sub" style={{ marginTop: 4, lineHeight: 1.5 }}>You hit your goal of {cycleGoal} cycles. Archive it and start another — history stays available for comparison.</div>
+          <button className="gt-btn gt-btn-primary" style={{ width: '100%', marginTop: 12, minHeight: 46 }} onClick={() => store.archiveAndStartNew()}>Archive & start mesocycle</button>
         </div>
       )}
 
@@ -252,14 +291,14 @@ export default function TodayScreen() {
           <div style={{ width: 34, height: 34, borderRadius: 99, background: 'var(--success)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><GIcon name="check" size={18} stroke={2.6} /></div>
           <div>
             <div className="gt-h2" style={{ fontSize: 15 }}>Workout complete</div>
-            <div className="gt-sub">{totalSets} sets · {(dayVolume((logs[week] || {})[workout.dayKey]) / 1000).toFixed(1)} t total. You can still edit sets.</div>
+            <div className="gt-sub">{totalSets} sets · {(dayVolume((logs[workout.cycle ?? cycle] || {})[workout.variant]) / 1000).toFixed(1)} t total. You can still edit sets.</div>
           </div>
         </div>
       )}
 
-      {!tpl && !workout ? (
+      {!variant ? (
         <div className="gt-card" style={{ marginTop: 8 }}>
-          <EmptyState icon="calendar" title="Rest day" body="No plan scheduled for today. Train anyway by picking any day's plan." cta="Pick a workout" onCta={() => setDayPicker(true)} />
+          <EmptyState icon="calendar" title="No variant" body="Pick a variant from the rotation to start logging." cta="Pick a variant" onCta={() => setVariantSheet(true)} />
         </div>
       ) : (
         entries.map((en, i) => {
@@ -271,6 +310,7 @@ export default function TodayScreen() {
               onLogSet={(d) => logSet(i, d)}
               onEditSet={(s, d) => store.editSet(s.id, s.workoutId, d)}
               onDeleteSet={(s) => store.deleteSet(s.id, s.workoutId)}
+              onToggleBackoff={(s) => store.toggleBackoff(s.id, s.workoutId)}
               onSwap={() => { setSwapIdx(i); setSwapQuery(''); }} />
           );
         })
@@ -278,51 +318,35 @@ export default function TodayScreen() {
 
       {!finished && entries.length > 0 && (
         <button className="gt-btn gt-btn-primary" disabled={totalSets === 0} style={{ width: '100%', minHeight: 56, fontSize: 16, marginTop: 6, opacity: totalSets === 0 ? 0.4 : 1 }} onClick={finish}>
-          <GIcon name="flame" size={20} />Finish workout
+          <GIcon name="flame" size={20} />Finish & advance
         </button>
       )}
 
-      {/* Change today's plan */}
-      <Sheet open={dayPicker} onClose={() => { setDayPicker(false); setPreviewDay(null); }} title="Train a different plan">
-        <div className="gt-sub" style={{ marginBottom: 12, lineHeight: 1.5 }}>Tap a day to preview its routine. Loading a plan replaces today's list — sets you already logged still count in History and Metrics.</div>
-        {DAY_KEYS.map((d) => {
-          const t = templates[d];
-          if (!t) return null;
-          const on = templateDay === d;
-          const expanded = previewDay === d;
-          return (
-            <div key={d} className="gt-card" style={{ marginBottom: 8, borderColor: on ? 'var(--accent)' : undefined }}>
-              <button style={{ width: '100%', padding: '13px 16px', display: 'flex', alignItems: 'center', gap: 12, background: 'none', border: 'none', font: 'inherit', color: 'inherit', textAlign: 'left', cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}
-                onClick={() => setPreviewDay(expanded ? null : d)}>
-                <div className="gt-num" style={{ fontSize: 15, width: 38, color: on ? 'var(--accent)' : 'var(--text-2)' }}>{d}</div>
-                <div style={{ flex: 1 }}>
-                  <div className="gt-body" style={{ fontWeight: 800 }}>{t.block}</div>
-                  <div className="gt-micro" style={{ marginTop: 2 }}>{t.exerciseIds.length} exercises{d === todayKey ? ' · scheduled today' : ''}{on ? ' · current plan' : ''}</div>
+      {/* Jump to another variant */}
+      <Sheet open={variantSheet} onClose={() => setVariantSheet(false)} title="Jump to another variant">
+        <div className="gt-sub" style={{ marginBottom: 14, lineHeight: 1.5 }}>It advances on its own when you finish. Use this if you break the order — sets already logged still count.</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          {variants.map((v) => {
+            const done = doneSet.has(v.code);
+            const isActive = v.code === activeCode;
+            const status = done ? 'Done' : isActive ? 'In progress' : 'Pending';
+            const border = isActive ? 'var(--accent)' : done ? 'color-mix(in srgb, var(--success) 45%, transparent)' : 'var(--border)';
+            return (
+              <button key={v.code} onClick={async () => { await store.setActiveVariant(v.code); setVariantSheet(false); }}
+                style={{ textAlign: 'left', padding: '13px 14px', borderRadius: 16, cursor: 'pointer', background: isActive ? 'var(--accent-soft)' : 'var(--input-bg)', border: '1px solid ' + border, color: 'var(--text)', font: 'inherit' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div className="gt-num" style={{ fontSize: 20, color: isActive ? 'var(--accent)' : done ? 'var(--success)' : 'var(--text)' }}>{v.code}</div>
+                  {(done || isActive) && <div style={{ width: 8, height: 8, borderRadius: 999, background: done ? 'var(--success)' : 'var(--accent)' }} />}
                 </div>
-                <div style={{ color: on ? 'var(--accent)' : 'var(--text-3)' }}><GIcon name={expanded ? 'chevU' : 'chevD'} size={16} /></div>
+                <div className="gt-sub" style={{ marginTop: 3 }}>{v.name}</div>
+                <div className="gt-micro" style={{ marginTop: 1 }}>{status}</div>
               </button>
-              {expanded && (
-                <div style={{ padding: '0 16px 14px' }}>
-                  {t.exerciseIds.map((id) => (
-                    <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 0', borderTop: '1px solid var(--border)' }}>
-                      <div className="gt-body" style={{ fontWeight: 600, fontSize: 13.5, flex: 1 }}>{exMap[id]?.name || id}</div>
-                      <div className="gt-micro">{exMap[id]?.muscle || ''}</div>
-                    </div>
-                  ))}
-                  {!on && (
-                    <button className="gt-btn gt-btn-primary" style={{ width: '100%', marginTop: 12, minHeight: 44, fontSize: 14 }}
-                      onClick={async () => { await store.overrideToday(d); setDayPicker(false); setPreviewDay(null); }}>
-                      Train this today
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </Sheet>
 
-      {/* Swap one exercise for today */}
+      {/* Swap one exercise for this session */}
       <Sheet open={swapIdx != null} onClose={() => setSwapIdx(null)} title="Swap exercise for today">
         <div className="gt-sub" style={{ marginBottom: 12, lineHeight: 1.5 }}>Machine taken or unavailable? Swap it for today only — your routine stays unchanged.</div>
         <input className="gt-input" value={swapQuery} onChange={(e) => setSwapQuery(e.target.value)} placeholder="Search or type a new exercise…" />
