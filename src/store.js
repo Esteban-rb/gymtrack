@@ -78,7 +78,8 @@ export const useStore = create((set, get) => ({
     return done;
   },
 
-  /** Point the rotation at a chosen variant; retarget today's unfinished workout to it. */
+  /** Point the rotation at a chosen variant. An in-progress session today is retargeted to it;
+   *  a finished one stays untouched and a fresh second session starts for the new variant. */
   setActiveVariant: async (variantCode) => {
     const idx = get().variants.findIndex((v) => v.code === variantCode);
     if (idx < 0) return;
@@ -89,6 +90,8 @@ export const useStore = create((set, get) => ({
       const w = { ...existing, variant: v.code, block: v.name, cycle: get().period.cycle ?? 1, entries: v.exerciseIds.map((exerciseId) => ({ exerciseId })) };
       await db.workouts.put(w);
       set({ workouts: get().workouts.map((x) => (x.id === w.id ? w : x)) });
+    } else if (existing && existing.finished && existing.variant !== variantCode) {
+      await get().createWorkout(variantCode);
     }
   },
 
@@ -157,8 +160,13 @@ export const useStore = create((set, get) => ({
   dismissPeriodCelebration: () => set({ periodCelebration: null }),
 
   /* ---------------- workouts ---------------- */
-  /** Today's workout row, or null. */
-  todayWorkout: () => get().workouts.find((w) => w.date === isoDate()) || null,
+  /** Today's workout in the active period. An in-progress session wins over finished ones,
+   *  so jumping variants after finishing shows the new session, not the closed one. */
+  todayWorkout: () => {
+    const { workouts, period } = get();
+    const today = workouts.filter((w) => w.date === isoDate() && (!period || w.periodId === period.id));
+    return today.find((w) => !w.finished) || today[today.length - 1] || null;
+  },
 
   /** Create today's workout from a rotation variant (defaults to the queued one). */
   createWorkout: async (variantCode) => {

@@ -56,6 +56,13 @@ describe('app boots and core flows work', () => {
     const summary = await act(() => useStore.getState().finishWorkout(w.id));
     expect(summary.sets).toBe(1);
 
+    // jumping to another variant after finishing starts a fresh second session today
+    await act(() => useStore.getState().setActiveVariant('U2'));
+    const w2 = useStore.getState().todayWorkout();
+    expect(w2.variant).toBe('U2');
+    expect(w2.finished).toBe(false);
+    expect(w2.id).not.toBe(w.id);
+
     // Metrics now has data → the muscle medal map renders
     click('[aria-label="Metrics"]');
     await waitFor(() => text().includes('Muscle medal map'), 'body map');
