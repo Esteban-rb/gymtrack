@@ -1,5 +1,5 @@
 // GymTrack — shared UI (icons, medals, charts, tab bar, inputs), ported from the design prototype.
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { BASE_UNITS, splitUnit, joinUnit, MEDALS, fmtDate } from './calc.js';
 
 /* ============ Icons (24px stroke set) ============ */
@@ -160,29 +160,9 @@ export function Sheet({ open, onClose, title, children }) {
 }
 
 /* ============ Charts (SVG) ============ */
-export function BarChart({ data, height = 130, accentIndex = -1, labelKey = 'label', valueKey = 'value', fmtVal = (v) => Math.round(v / 100) / 10 + 'k' }) {
-  const W = 300, H = height, pad = 4, lblH = 18;
-  const max = Math.max(1, ...data.map((d) => d[valueKey]));
-  const bw = Math.min(34, (W - pad * 2) / Math.max(1, data.length) - 8);
-  return (
-    <svg viewBox={'0 0 ' + W + ' ' + (H + lblH)} style={{ width: '100%', display: 'block' }}>
-      {data.map((d, i) => {
-        const x = pad + (i + 0.5) * ((W - pad * 2) / data.length);
-        const h = Math.max(3, (d[valueKey] / max) * (H - 24));
-        const hot = i === accentIndex;
-        return (
-          <g key={i}>
-            <rect x={x - bw / 2} y={H - h} width={bw} height={h} rx={Math.min(8, bw / 2.6)} fill={hot ? 'var(--accent)' : 'var(--chart-muted)'} />
-            {hot ? <text x={x} y={H - h - 8} textAnchor="middle" fontSize="11" fontWeight="700" fill="var(--text)" fontFamily="Oswald">{fmtVal(d[valueKey])}</text> : null}
-            <text x={x} y={H + 13} textAnchor="middle" fontSize="10" fontWeight="600" fill="var(--text-3)" fontFamily="Manrope">{d[labelKey]}</text>
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
-
-export function LineChart({ data, height = 120, valueKey = 'kg', labelKey = 'week', fmtLabel = (l) => 'W' + l, fmtVal = (v) => v }) {
+/* v2 chart style: straight line + soft accent area fill underneath (bars retired). */
+export function LineChart({ data, height = 120, valueKey = 'kg', labelKey = 'week', fmtLabel = (l) => 'W' + l, fmtVal = (v) => v, area = true }) {
+  const gid = useId();
   const W = 300, H = height, padX = 14, padY = 16, lblH = 16;
   if (!data.length) return null;
   const vals = data.map((d) => d[valueKey]);
@@ -192,9 +172,17 @@ export function LineChart({ data, height = 120, valueKey = 'kg', labelKey = 'wee
   const y = (v) => padY + (1 - (v - min) / span) * (H - padY * 2);
   const pts = data.map((d, i) => x(i) + ',' + y(d[valueKey])).join(' ');
   const last = data.length - 1;
+  const base = H - padY + 4;
   return (
     <svg viewBox={'0 0 ' + W + ' ' + (H + lblH)} style={{ width: '100%', display: 'block' }}>
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="var(--accent)" stopOpacity="0.45" />
+          <stop offset="1" stopColor="var(--accent)" stopOpacity="0" />
+        </linearGradient>
+      </defs>
       {[0.25, 0.5, 0.75].map((t) => <line key={t} x1={padX} x2={W - padX} y1={padY + t * (H - padY * 2)} y2={padY + t * (H - padY * 2)} stroke="var(--chart-grid)" strokeWidth="1" />)}
+      {area && data.length > 1 ? <polygon points={pts + ' ' + x(last) + ',' + base + ' ' + x(0) + ',' + base} fill={'url(#' + gid + ')'} /> : null}
       <polyline points={pts} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
       {data.map((d, i) => (
         <g key={i}>
@@ -203,6 +191,31 @@ export function LineChart({ data, height = 120, valueKey = 'kg', labelKey = 'wee
         </g>
       ))}
       <text x={x(last)} y={y(vals[last]) - 10} textAnchor="middle" fontSize="12" fontWeight="700" fill="var(--text)" fontFamily="Oswald">{fmtVal(vals[last])}</text>
+    </svg>
+  );
+}
+
+/* Mini area sparkline for the per-exercise rows in Metrics (straight segments). */
+export function Sparkline({ data, valueKey = 'kg', width = 70, height = 26 }) {
+  const gid = useId();
+  if (!data.length) return null;
+  const W = 80, H = 30, pad = 4;
+  const vals = data.map((d) => d[valueKey]);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const span = (max - min) || 1;
+  const x = (i) => pad + (data.length === 1 ? (W - pad * 2) / 2 : i * ((W - pad * 2) / (data.length - 1)));
+  const y = (v) => pad + (1 - (v - min) / span) * (H - pad * 2);
+  const pts = data.map((d, i) => x(i) + ',' + y(d[valueKey])).join(' ');
+  return (
+    <svg viewBox={'0 0 ' + W + ' ' + H} style={{ width, height, flexShrink: 0 }} aria-hidden="true">
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="var(--accent)" stopOpacity="0.45" />
+          <stop offset="1" stopColor="var(--accent)" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {data.length > 1 ? <polygon points={pts + ' ' + x(data.length - 1) + ',' + (H - 2) + ' ' + x(0) + ',' + (H - 2)} fill={'url(#' + gid + ')'} /> : null}
+      <polyline points={pts} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -298,18 +311,33 @@ export function PeriodFinishOverlay({ summary, onClose }) {
           ))}
         </div>
 
-        {summary.gains.length > 0 && (
-          <div className="gt-card" style={{ marginTop: 12, width: '100%', maxWidth: 320, padding: '14px 16px', textAlign: 'left' }}>
-            <div className="gt-label" style={{ color: 'var(--accent)', marginBottom: 8 }}>Top progress</div>
-            {summary.gains.map((g) => (
-              <div key={g.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0' }}>
-                <div className="gt-body" style={{ fontWeight: 700, flex: 1, minWidth: 0 }}>{g.name}</div>
-                <div className="gt-num" style={{ fontSize: 15, color: 'var(--text-2)' }}>{g.from}→{g.to} kg</div>
-                <div className="gt-num" style={{ fontSize: 15, color: 'var(--success)', width: 56, textAlign: 'right' }}>+{g.pct}%</div>
+        {summary.gains.length > 0 && (() => {
+          // v2 podium: top-3 exercises by % progress, ranked with our medal tiers
+          // (gold / silver / bronze) and arranged 2nd · 1st · 3rd like a real podium.
+          const RANKS = [
+            { level: 2, color: 'var(--gold)', height: 84 },
+            { level: 1, color: 'var(--silver)', height: 54 },
+            { level: 0, color: 'var(--bronze)', height: 40 },
+          ];
+          const top = summary.gains.slice(0, 3).map((g, i) => ({ ...g, ...RANKS[i] }));
+          const slots = top.length === 3 ? [top[1], top[0], top[2]] : top.length === 2 ? [top[1], top[0]] : top;
+          return (
+            <div className="gt-card" style={{ marginTop: 12, width: '100%', maxWidth: 320, padding: '16px 14px 0', overflow: 'hidden' }}>
+              <div className="gt-label" style={{ color: 'var(--accent)', marginBottom: 14 }}>Top progress</div>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+                {slots.map((p) => (
+                  <div key={p.id} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                    <MedalBadge level={p.level} size={38} />
+                    <div style={{ fontSize: 11, fontWeight: 800, lineHeight: 1.25, textAlign: 'center', minHeight: 28, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>{p.name}</div>
+                    <div className="gt-num" style={{ fontSize: 20, color: p.color }}>+{p.pct}%</div>
+                    <div className="gt-micro">{p.from}→{p.to} kg</div>
+                    <div style={{ width: '100%', height: p.height, marginTop: 9, borderRadius: '10px 10px 0 0', background: `linear-gradient(180deg, color-mix(in srgb, ${p.color} 50%, transparent), color-mix(in srgb, ${p.color} 5%, transparent))` }} />
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            </div>
+          );
+        })()}
 
         {medalTotal > 0 && (
           <div className="gt-card" style={{ marginTop: 12, width: '100%', maxWidth: 320, padding: '14px 16px' }}>
@@ -337,7 +365,6 @@ export const TABS = [
   { id: 'today', label: 'Today' },
   { id: 'metrics', label: 'Metrics' },
   { id: 'records', label: 'Records' },
-  { id: 'history', label: 'History' },
   { id: 'settings', label: 'Settings' },
 ];
 // Redesigned bottom-bar icons (from the Claude Design handoff).
@@ -357,7 +384,7 @@ function TabIcon({ id }) {
 }
 export function TabBar({ tab, onChange }) {
   return (
-    <div style={{ position: 'fixed', left: 14, right: 14, bottom: 'calc(14px + env(safe-area-inset-bottom))', zIndex: 40, display: 'flex', gap: 4, padding: 6, borderRadius: 999, background: 'var(--tabbar-bg)', border: '1px solid var(--border)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', boxShadow: '0 10px 30px rgba(0,0,0,0.35)', maxWidth: 520, margin: '0 auto' }}>
+    <div style={{ position: 'fixed', left: 14, right: 14, bottom: 'calc(14px + env(safe-area-inset-bottom))', zIndex: 40, display: 'flex', gap: 4, padding: 6, borderRadius: 999, background: 'var(--tabbar-bg)', border: '1px solid var(--border)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', boxShadow: 'var(--tabbar-shadow)', maxWidth: 520, margin: '0 auto' }}>
       {TABS.map((t) => {
         const on = tab === t.id;
         return (

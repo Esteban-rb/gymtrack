@@ -36,7 +36,6 @@ describe('app boots and core flows work', () => {
     for (const [tab, marker] of [
       ['Metrics', 'No data yet'],
       ['Records', ''],
-      ['History', ''],
       ['Settings', 'Mesocycle'],
       ['Today', 'SETS'],
     ]) {
@@ -75,7 +74,12 @@ describe('app boots and core flows work', () => {
     click('[aria-label="Metrics"]');
     await waitFor(() => text().includes('Muscle medal map'), 'medal map without active-period data');
     expect(text()).not.toContain('No data yet');
-    click('[aria-label="History"]');
+    // History now lives inside Settings as a full-screen sub-page
+    click('[aria-label="Settings"]');
+    await waitFor(() => text().includes('Session history'), 'Settings shows the history entry');
+    click('[aria-label="open history"]');
     await waitFor(() => text().includes('Archived ·'), 'History opens the period with data');
+    click('[aria-label="back to settings"]');
+    await waitFor(() => !text().includes('Archived ·'), 'History closes back to Settings');
   });
 });

@@ -1,12 +1,89 @@
 // GymTrack — Metrics dashboard, grouped by rotation cycle (all figures derived from realKg).
-import React, { useMemo, useState } from 'react';
+// v2 design: area line charts (straight segments, no bars) + per-muscle progress accordions
+// with press-and-hold to blow up any exercise's chart.
+import React, { useMemo, useRef, useState } from 'react';
 import { useStore } from '../store.js';
+import { MUSCLES } from '../db.js';
 import * as M from '../metrics.js';
-import { GIcon, ProgressBar, Stepper, Sheet, BarChart, LineChart, Donut, DONUT_COLORS, SectionHead, EmptyState } from '../components.jsx';
+import { GIcon, ProgressBar, Stepper, Sheet, LineChart, Sparkline, Donut, DONUT_COLORS, SectionHead, EmptyState } from '../components.jsx';
 import BodyMap from '../bodymap.jsx';
 
 function MetricCard({ children, style }) {
   return <div className="gt-card" style={{ padding: '16px', marginBottom: 12, ...style }}>{children}</div>;
+}
+
+const fmtDelta = (d) => (d >= 0 ? '+' : '') + (Math.round(d * 10) / 10) + ' kg';
+const deltaColor = (d) => (d >= 0 ? 'var(--success)' : 'var(--accent)');
+
+/* One exercise row inside a muscle card: sparkline + current + delta.
+ * Press and hold anywhere on the row to expand the full chart (release to close). */
+function ExerciseTrendRow({ ex }) {
+  const [held, setHeld] = useState(false);
+  const timer = useRef(null);
+  const start = () => { clearTimeout(timer.current); timer.current = setTimeout(() => setHeld(true), 280); };
+  const end = () => { clearTimeout(timer.current); setHeld(false); };
+  const s = ex.series;
+  const cur = s[s.length - 1].kg;
+  const d = cur - s[0].kg;
+  return (
+    <div
+      onPointerDown={start} onPointerUp={end} onPointerCancel={end} onPointerLeave={end}
+      onContextMenu={(e) => e.preventDefault()}
+      style={{ borderTop: '1px solid var(--border)', userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none', touchAction: held ? 'none' : 'pan-y' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="gt-body" style={{ fontWeight: 800, fontSize: 13 }}>{ex.name}</div>
+          <div className="gt-micro" style={{ marginTop: 1 }}>avg kg per rep</div>
+        </div>
+        <Sparkline data={s} />
+        <div style={{ width: 74, textAlign: 'right', flexShrink: 0 }}>
+          <div className="gt-num" style={{ fontSize: 15 }}>{cur} kg</div>
+          <div className="gt-micro" style={{ fontWeight: 700, color: deltaColor(d) }}>{fmtDelta(d)}</div>
+        </div>
+      </div>
+      {held && (
+        <div style={{ paddingBottom: 10, animation: 'gt-pop 0.25s cubic-bezier(.2,1.2,.4,1)', transformOrigin: '50% 0' }}>
+          <LineChart data={s} height={110} labelKey="cycle" fmtLabel={(l) => 'C' + l} fmtVal={(v) => v + ' kg'} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Accordion card: muscle summary row, expands to trend chart + exercise rows. */
+function MuscleCard({ muscle, data, open, onToggle }) {
+  const s = data.series;
+  const cur = s[s.length - 1].kg;
+  const d = cur - s[0].kg;
+  const nEx = data.exercises.length;
+  return (
+    <div className="gt-card" style={{ marginBottom: 10, overflow: 'hidden', borderColor: open ? 'var(--accent)' : undefined }}>
+      <button onClick={onToggle} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', minHeight: 54, background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', font: 'inherit', color: 'inherit', WebkitTapHighlightColor: 'transparent' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="gt-body" style={{ fontWeight: 800, fontSize: 15 }}>{muscle}</div>
+          <div className="gt-micro" style={{ marginTop: 1 }}>{nEx}{nEx === 1 ? ' exercise' : ' exercises'}</div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div className="gt-num" style={{ fontSize: 17 }}>{cur} kg</div>
+          <div className="gt-micro" style={{ fontWeight: 700, color: deltaColor(d) }}>{fmtDelta(d)}</div>
+        </div>
+        <GIcon name="chevD" size={16} style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', color: 'var(--text-2)', flexShrink: 0 }} />
+      </button>
+      {open && (
+        <div style={{ padding: '0 16px 14px' }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <span className="gt-chip on" style={{ height: 26, padding: '0 10px', fontSize: 10, cursor: 'default' }}>Avg kg / rep</span>
+            <span className="gt-chip" style={{ height: 26, padding: '0 10px', fontSize: 10, cursor: 'default' }}>C{s[0].cycle} – C{s[s.length - 1].cycle}</span>
+          </div>
+          <div className="gt-num" style={{ fontSize: 34, lineHeight: 1, margin: '8px 0 2px' }}>{fmtDelta(d)}</div>
+          <LineChart data={s} height={118} labelKey="cycle" fmtLabel={(l) => 'C' + l} fmtVal={(v) => v + ' kg'} />
+          <div style={{ marginTop: 6 }}>
+            {data.exercises.map((e) => <ExerciseTrendRow key={e.id} ex={e} />)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function MetricsScreen() {
@@ -15,7 +92,7 @@ export default function MetricsScreen() {
   const exMap = useMemo(() => Object.fromEntries(exercises.map((e) => [e.id, e])), [exercises]);
 
   const [volMode, setVolMode] = useState('tonnage');
-  const [exSel, setExSel] = useState('');
+  const [openMuscle, setOpenMuscle] = useState('__first');
   const [showBwSheet, setShowBwSheet] = useState(false);
   const [bwDraft, setBwDraft] = useState(store.profile?.bodyweightKg || 70);
 
@@ -28,21 +105,25 @@ export default function MetricsScreen() {
   );
 
   const totalWorkouts = M.workoutsDone(logs);
-  const plannedTotal = cycleGoal * perCycle;
   const hasData = totalWorkouts > 0;
 
   const cycleVol = useMemo(() => {
     const out = [];
     for (let c = 1; c <= cycle; c++) {
       const v = volMode === 'tonnage' ? M.cycleVolume(logs, c) : M.cycleAvgLoad(logs, c);
-      if (v > 0) out.push({ label: 'C' + c, value: v });
+      if (v > 0) out.push({ cycle: c, value: v });
     }
     return out;
   }, [logs, volMode, cycle]);
 
   const rotationPos = period?.rotationPos ?? 0;
-  const variantVol = useMemo(() => variants.map((v) => ({ label: v.code, value: M.dayVolume((logs[cycle] || {})[v.code]) })), [logs, cycle, variants]);
-  const muscles = useMemo(() => M.muscleAverages(logs, cycle, exMap), [logs, cycle, exMap]);
+  const progress = useMemo(() => M.muscleProgress(logs, exMap), [logs, exMap]);
+  const muscleList = useMemo(() => {
+    const order = [...MUSCLES, ...Object.keys(progress).filter((m) => !MUSCLES.includes(m))];
+    return order.filter((m) => progress[m]).map((m) => ({ muscle: m, data: progress[m] }));
+  }, [progress]);
+  const effOpen = openMuscle === '__first' ? muscleList[0]?.muscle : openMuscle;
+
   const split = useMemo(() => M.muscleVolumeSplit(logs, exMap), [logs, exMap]);
   const cumTonnage = useMemo(() => { let t = 0; for (let c = 1; c <= cycle; c++) t += M.cycleVolume(logs, c); return t; }, [logs, cycle]);
 
@@ -63,16 +144,15 @@ export default function MetricsScreen() {
 
   const hasMedals = Object.keys(medalByMuscle).length > 0;
 
-  const exsWithData = exercises.filter((e) => M.bestSet(logs, e.id));
-  const sel = exSel && exsWithData.some((e) => e.id === exSel) ? exSel : (exsWithData[0]?.id || '');
-  const series = useMemo(() => (sel ? M.exerciseSeries(logs, sel) : []), [logs, sel]);
-  const rmSeries = useMemo(() => (sel ? M.oneRmSeries(logs, sel) : []), [logs, sel]);
-
   // adherence: finished sessions vs sessions programmed so far in the rotation
   const programmedSoFar = Math.max(1, (cycle - 1) * perCycle + rotationPos);
   const adherence = Math.min(100, Math.round((totalWorkouts / programmedSoFar) * 100));
 
   const bwSeries = bodyweight.map((b) => ({ label: b.date.slice(5).replace('-', '/'), kg: b.kg }));
+
+  const fmtTon = (v) => (volMode === 'tonnage' ? (v / 1000).toFixed(1) + ' t' : v);
+  const lastVol = cycleVol[cycleVol.length - 1];
+  const prevVol = cycleVol.length > 1 ? cycleVol[cycleVol.length - 2] : null;
 
   // medals live across periods — only fully empty when there's no data AND no medals
   if (!hasData && !hasMedals) {
@@ -99,7 +179,7 @@ export default function MetricsScreen() {
           <div className="gt-micro" style={{ marginTop: 12, textAlign: 'center' }}>Each muscle takes the average medal of its exercises</div>
         </MetricCard>
         <div className="gt-card" style={{ padding: 16, marginTop: 4 }}>
-          <div className="gt-sub" style={{ lineHeight: 1.5 }}>No sessions in this mesocycle yet — volume and progress charts light up as you train. Your full history lives in History; records and medals in Records.</div>
+          <div className="gt-sub" style={{ lineHeight: 1.5 }}>No sessions in this mesocycle yet — volume and progress charts light up as you train. Your full history lives in Settings → History; records and medals in Records.</div>
         </div>
       </div>
     );
@@ -125,60 +205,40 @@ export default function MetricsScreen() {
         </MetricCard>
       </div>
 
-      <SectionHead>Volume per cycle</SectionHead>
+      <SectionHead>Tonnage per cycle</SectionHead>
       <MetricCard>
-        <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-          <button className={'gt-chip' + (volMode === 'tonnage' ? ' on' : '')} onClick={() => setVolMode('tonnage')}>Total tonnage</button>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+          <button className={'gt-chip' + (volMode === 'tonnage' ? ' on' : '')} onClick={() => setVolMode('tonnage')}>Tonnage</button>
           <button className={'gt-chip' + (volMode === 'avg' ? ' on' : '')} onClick={() => setVolMode('avg')}>Avg kg × avg reps</button>
         </div>
-        <BarChart data={cycleVol} accentIndex={cycleVol.length - 1} fmtVal={(v) => (volMode === 'tonnage' ? Math.round(v / 100) / 10 + 'k' : v)} />
-        <div className="gt-micro" style={{ marginTop: 8 }}>{volMode === 'tonnage' ? 'Real kg lifted per cycle (1 bar = one full pass through the 6 variants)' : 'Average real kg × average reps per set, per cycle'}</div>
-      </MetricCard>
-
-      <SectionHead>This cycle by variant</SectionHead>
-      <MetricCard>
-        <BarChart data={variantVol} accentIndex={rotationPos} height={110} />
-      </MetricCard>
-
-      <SectionHead>Muscle averages · this cycle</SectionHead>
-      <MetricCard style={{ padding: '8px 16px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 0.8fr 1fr 0.9fr', gap: 4, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-          {['MUSCLE', 'SETS', 'AVG KG', 'AVG REPS'].map((h) => <div key={h} className="gt-micro">{h}</div>)}
-        </div>
-        {muscles.map((m) => (
-          <div key={m.muscle} style={{ display: 'grid', gridTemplateColumns: '1.5fr 0.8fr 1fr 0.9fr', gap: 4, padding: '9px 0', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
-            <div className="gt-body" style={{ fontWeight: 700, fontSize: 13.5 }}>{m.muscle}</div>
-            <div className="gt-num" style={{ fontSize: 15 }}>{m.sets}</div>
-            <div className="gt-num" style={{ fontSize: 15 }}>{m.avgKg}</div>
-            <div className="gt-num" style={{ fontSize: 15 }}>{m.avgReps}</div>
+        {lastVol ? (
+          <div className="gt-num" style={{ fontSize: 34, lineHeight: 1, marginBottom: 4 }}>
+            {fmtTon(lastVol.value)}
+            <span className="gt-sub" style={{ fontSize: 13, fontFamily: 'Manrope, sans-serif', fontWeight: 600, marginLeft: 8 }}>
+              {lastVol.cycle === cycle ? 'cycle ' + cycle + ' in progress' : 'cycle ' + lastVol.cycle}
+              {prevVol ? ' · C' + prevVol.cycle + ' closed at ' + fmtTon(prevVol.value) : ''}
+            </span>
           </div>
-        ))}
+        ) : null}
+        <LineChart data={cycleVol} height={130} valueKey="value" labelKey="cycle" fmtLabel={(l) => 'C' + l} fmtVal={fmtTon} />
+        <div className="gt-micro" style={{ marginTop: 8 }}>{volMode === 'tonnage' ? 'Real kg lifted per cycle · 1 point = one full pass through the 6 variants' : 'Average real kg × average reps per set, per cycle'}</div>
       </MetricCard>
+
+      {muscleList.length > 0 && (
+        <>
+          <SectionHead>Muscle progress · avg kg per rep</SectionHead>
+          {muscleList.map(({ muscle, data }) => (
+            <MuscleCard key={muscle} muscle={muscle} data={data} open={effOpen === muscle}
+              onToggle={() => setOpenMuscle(effOpen === muscle ? null : muscle)} />
+          ))}
+        </>
+      )}
 
       <SectionHead>Muscle medal map</SectionHead>
       <MetricCard>
         <BodyMap levels={medalByMuscle} />
         <div className="gt-micro" style={{ marginTop: 12, textAlign: 'center' }}>Each muscle takes the average medal of its exercises</div>
       </MetricCard>
-
-      {sel && (
-        <>
-          <SectionHead>Exercise progress</SectionHead>
-          <MetricCard>
-            <div style={{ position: 'relative', marginBottom: 12 }}>
-              <select className="gt-input" style={{ appearance: 'none', WebkitAppearance: 'none', paddingRight: 38 }} value={sel} onChange={(e) => setExSel(e.target.value)}>
-                {exsWithData.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-              </select>
-              <div style={{ position: 'absolute', right: 13, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-2)', pointerEvents: 'none' }}><GIcon name="chevD" size={16} /></div>
-            </div>
-            <LineChart data={series} labelKey="cycle" fmtLabel={(l) => 'C' + l} fmtVal={(v) => v + ' kg'} />
-            <div className="gt-micro" style={{ marginTop: 6 }}>Best working weight per cycle (one point per cycle, not per week)</div>
-            <div className="gt-divider" style={{ margin: '14px 0' }} />
-            <div className="gt-label" style={{ marginBottom: 8 }}>Est. 1RM trend (Epley)</div>
-            <LineChart data={rmSeries} height={92} labelKey="cycle" fmtLabel={(l) => 'C' + l} fmtVal={(v) => v + ' kg'} />
-          </MetricCard>
-        </>
-      )}
 
       <SectionHead>Volume split · mesocycle</SectionHead>
       <MetricCard>

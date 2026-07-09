@@ -31,6 +31,7 @@ html, body {
   --chart-grid: rgba(255, 255, 255, 0.07);
   --chart-muted: rgba(255, 255, 255, 0.22);
   --tabbar-bg: rgba(18, 20, 24, 0.86);
+  --tabbar-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   --sheet-bg: #1A1C21;
   --input-bg: rgba(255, 255, 255, 0.07);
   --shadow-card: 0 1px 0 rgba(255,255,255,0.04) inset;
@@ -57,9 +58,11 @@ html, body {
   --accent-soft: rgba(232, 54, 43, 0.10);
   --success: #1FA83C;
   --success-soft: rgba(31, 168, 60, 0.12);
+  --warning: #B7791F; /* the dark-theme yellow is illegible on white */
   --chart-grid: rgba(20, 22, 26, 0.07);
   --chart-muted: rgba(20, 22, 26, 0.25);
   --tabbar-bg: rgba(255, 255, 255, 0.92);
+  --tabbar-shadow: 0 10px 30px rgba(20, 22, 26, 0.14);
   --sheet-bg: #FFFFFF;
   --input-bg: #F1F2F5;
   --shadow-card: 0 1px 2px rgba(20, 22, 26, 0.05), 0 8px 24px rgba(20, 22, 26, 0.05);

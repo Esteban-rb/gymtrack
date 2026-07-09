@@ -165,6 +165,40 @@ export function muscleVolumeSplit(logs, exMap) {
   return Object.entries(agg).map(([muscle, kg]) => ({ muscle, kg: Math.round(kg) })).sort((a, b) => b.kg - a.kg);
 }
 
+/** Per-muscle progress for the Metrics accordion cards: one point per cycle of
+ *  avg load per rep (Σ realKg·reps / Σ reps), plus the same series per exercise.
+ *  Returns { [muscle]: { series: [{cycle, kg}], exercises: [{ id, name, series }] } }. */
+export function muscleProgress(logs, exMap) {
+  const cycles = Object.keys(logs).map(Number).sort((a, b) => a - b);
+  const byMuscle = {};
+  for (const c of cycles) {
+    const perM = {}, perE = {};
+    for (const d of Object.keys(logs[c])) {
+      for (const ex of logs[c][d].exercises) {
+        const m = (exMap[ex.id] || {}).muscle || 'Other';
+        for (const s of ex.sets) {
+          const reps = s.reps || 0;
+          if (!reps) continue;
+          (perM[m] = perM[m] || { kg: 0, reps: 0 });
+          perM[m].kg += s.realKg * reps; perM[m].reps += reps;
+          (perE[ex.id] = perE[ex.id] || { kg: 0, reps: 0, name: ex.name, muscle: m });
+          perE[ex.id].kg += s.realKg * reps; perE[ex.id].reps += reps;
+        }
+      }
+    }
+    for (const [m, a] of Object.entries(perM)) {
+      (byMuscle[m] = byMuscle[m] || { series: [], exercises: [] }).series.push({ cycle: c, kg: +(a.kg / a.reps).toFixed(1) });
+    }
+    for (const [id, a] of Object.entries(perE)) {
+      const bm = byMuscle[a.muscle];
+      let e = bm.exercises.find((x) => x.id === id);
+      if (!e) bm.exercises.push((e = { id, name: a.name, series: [] }));
+      e.series.push({ cycle: c, kg: +(a.kg / a.reps).toFixed(1) });
+    }
+  }
+  return byMuscle;
+}
+
 /** Per-cycle best working weight (realKg) for an exercise. One point per cycle. */
 export function exerciseSeries(logs, exId) {
   const out = [];

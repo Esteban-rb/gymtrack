@@ -5,7 +5,8 @@ import { buildLogs, dayVolume, workoutsDone } from '../metrics.js';
 import { fmtWeight, fmtDate } from '../calc.js';
 import { GIcon, Sheet, EmptyState } from '../components.jsx';
 
-export default function HistoryScreen() {
+// Since v2 History lives inside Settings (full-screen sub-page) instead of a bottom tab.
+export default function HistoryScreen({ onBack }) {
   const store = useStore();
   const { period, allPeriods, variants, workouts, setsByWorkout, exercises } = store;
   const exMap = useMemo(() => Object.fromEntries(exercises.map((e) => [e.id, e])), [exercises]);
@@ -47,7 +48,10 @@ export default function HistoryScreen() {
 
   return (
     <div className="gt-scroll" style={{ height: '100%', padding: '18px 16px 150px' }}>
-      <div className="gt-h1" style={{ marginBottom: 4 }}>History</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
+        {onBack ? <button className="gt-iconbtn" style={{ width: 38, height: 38, minWidth: 38 }} onClick={onBack} aria-label="back to settings"><GIcon name="chevL" size={17} /></button> : null}
+        <div className="gt-h1">History</div>
+      </div>
       <div className="gt-sub">{selPeriod ? (isActive ? 'Current mesocycle · started ' + fmtDate(selPeriod.startDate) : 'Archived · ' + fmtDate(selPeriod.startDate)) : 'No mesocycles yet'}</div>
 
       {periodsSorted.length > 1 && (

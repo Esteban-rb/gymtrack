@@ -5,11 +5,15 @@ import { MUSCLES } from '../db.js';
 import { MEDALS, fmtDate } from '../calc.js';
 import { exportJSON, exportXLSX, importJSON, importXLSX } from '../backup.js';
 import { GIcon, Stepper, UnitChips, Sheet, SectionHead } from '../components.jsx';
+import HistoryScreen from './History.jsx';
 
-function SettingRow({ label, sub, right, onClick }) {
+// v2 accent palette (from the Claude Design handoff); first entry = default red
+const ACCENTS = ['#FF3B30', '#FF6B35', '#FF9F0A', '#FFD60A', '#A8D91C', '#32D74B', '#1F8A5B', '#2AC0C8', '#0A84FF', '#2A6FDB', '#5E5CE6', '#BF5AF2', '#FF2D92', '#FF375F', '#B08968', '#8E8E93'];
+
+function SettingRow({ label, sub, right, onClick, ariaLabel }) {
   const Tag = onClick ? 'button' : 'div';
   return (
-    <Tag onClick={onClick} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '13px 2px', background: 'none', border: 'none', borderBottom: '1px solid var(--border)', font: 'inherit', color: 'inherit', textAlign: 'left', cursor: onClick ? 'pointer' : 'default', WebkitTapHighlightColor: 'transparent' }}>
+    <Tag onClick={onClick} aria-label={ariaLabel} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '13px 2px', background: 'none', border: 'none', borderBottom: '1px solid var(--border)', font: 'inherit', color: 'inherit', textAlign: 'left', cursor: onClick ? 'pointer' : 'default', WebkitTapHighlightColor: 'transparent' }}>
       <div style={{ flex: 1 }}>
         <div className="gt-body" style={{ fontWeight: 700 }}>{label}</div>
         {sub ? <div className="gt-micro" style={{ marginTop: 2 }}>{sub}</div> : null}
@@ -29,6 +33,7 @@ export default function SettingsScreen() {
   const [addQuery, setAddQuery] = useState('');
   const [medalSheet, setMedalSheet] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [importMsg, setImportMsg] = useState(null);
   const fileRef = useRef(null);
 
@@ -102,15 +107,32 @@ export default function SettingsScreen() {
         </div>
       </div>
 
+      <SectionHead>History</SectionHead>
+      <div className="gt-card" style={{ padding: '4px 16px' }}>
+        <SettingRow label="Session history" sub="Browse past mesocycles, cycles and sessions" ariaLabel="open history" onClick={() => setShowHistory(true)} right={<div style={{ color: 'var(--text-3)' }}><GIcon name="chevR" size={16} /></div>} />
+      </div>
+
       <SectionHead>Profile</SectionHead>
       <div className="gt-card" style={{ padding: '4px 16px' }}>
         <SettingRow label="Age" right={<Stepper value={profile.age} step={1} min={10} width={120} onChange={(v) => store.updateProfile({ age: v })} />} />
         <SettingRow label="Body weight" sub="Used for strength standards" right={<Stepper value={profile.bodyweightKg} step={0.5} min={30} width={134} onChange={(v) => store.updateProfile({ bodyweightKg: v })} format={(v) => v + ' kg'} />} />
+      </div>
+
+      <SectionHead>Appearance</SectionHead>
+      <div className="gt-card" style={{ padding: '4px 16px 16px' }}>
         <SettingRow label="Theme" right={
           <div style={{ display: 'flex', gap: 5 }}>
             {['dark', 'light'].map((t) => <button key={t} className={'gt-chip' + (profile.theme === t ? ' on' : '')} onClick={() => store.updateProfile({ theme: t })}>{t}</button>)}
           </div>
         } />
+        <div className="gt-micro" style={{ margin: '14px 0 10px 2px' }}>ACCENT COLOR</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 9 }}>
+          {ACCENTS.map((c) => {
+            const on = (profile.accent || ACCENTS[0]).toLowerCase() === c.toLowerCase();
+            return <button key={c} title={c} aria-label={'accent ' + c} onClick={() => store.updateProfile({ accent: c })}
+              style={{ width: '100%', aspectRatio: '1', borderRadius: 999, cursor: 'pointer', padding: 0, background: c, border: '3px solid ' + (on ? 'var(--text)' : 'transparent'), WebkitTapHighlightColor: 'transparent' }} />;
+          })}
+        </div>
       </div>
 
       <SectionHead>Routine · rotation</SectionHead>
@@ -173,6 +195,15 @@ export default function SettingsScreen() {
         {importMsg ? <div className="gt-sub" style={{ marginTop: 10, color: importMsg.includes('✓') ? 'var(--success)' : importMsg.includes('…') ? 'var(--text-2)' : 'var(--accent)' }}>{importMsg}</div> : null}
       </div>
       <div className="gt-micro" style={{ textAlign: 'center', marginTop: 18 }}>GymTrack {typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev'}</div>
+
+      {/* History — full-screen sub-page (was its own bottom tab before v2) */}
+      {showHistory && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 55, background: 'var(--bg-grad), var(--bg)', animation: 'gt-fade 0.2s ease' }}>
+          <div style={{ height: '100%', maxWidth: 520, margin: '0 auto', paddingTop: 'env(safe-area-inset-top)' }}>
+            <HistoryScreen onBack={() => setShowHistory(false)} />
+          </div>
+        </div>
+      )}
 
       {/* Edit exercise */}
       <Sheet open={!!editingEx} onClose={() => setEditingEx(null)} title="Edit exercise">

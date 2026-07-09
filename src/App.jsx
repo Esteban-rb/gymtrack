@@ -1,12 +1,11 @@
-// GymTrack — app shell: bootstrap, theme, tab navigation, medal-unlock toast.
-import React, { useEffect, useState } from 'react';
+// GymTrack — app shell: bootstrap, theme + accent, tab navigation, medal-unlock toast.
+import React, { useEffect, useMemo, useState } from 'react';
 import { useStore } from './store.js';
 import { MEDALS } from './calc.js';
-import { TabBar, MedalBadge, MEDAL_COLORS, PeriodFinishOverlay } from './components.jsx';
+import { TabBar, TABS, MedalBadge, MEDAL_COLORS, PeriodFinishOverlay } from './components.jsx';
 import TodayScreen from './screens/Today.jsx';
 import MetricsScreen from './screens/Metrics.jsx';
 import RecordsScreen from './screens/Records.jsx';
-import HistoryScreen from './screens/History.jsx';
 import SettingsScreen from './screens/Settings.jsx';
 
 function MedalToast() {
@@ -34,7 +33,11 @@ function MedalToast() {
 export default function App() {
   const store = useStore();
   const [tab, setTab] = useState(() => {
-    try { return localStorage.getItem('gymtrack_tab') || 'today'; } catch { return 'today'; }
+    // fall back to 'today' if the stored tab no longer exists (e.g. the removed History tab)
+    try {
+      const t = localStorage.getItem('gymtrack_tab');
+      return TABS.some((x) => x.id === t) ? t : 'today';
+    } catch { return 'today'; }
   });
   useEffect(() => { store.init(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { try { localStorage.setItem('gymtrack_tab', tab); } catch { /* private mode */ } }, [tab]);
@@ -43,19 +46,38 @@ export default function App() {
   useEffect(() => {
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', dark ? '#0B0C0E' : '#F1F2F5');
+    // keep the browser's own rendering in sync with the in-app theme: native controls
+    // (select popups, keyboard), overscroll areas, and Android Chrome's auto-dark heuristic
+    document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+    document.documentElement.style.background = dark ? '#0B0C0E' : '#F1F2F5';
+    document.body.style.background = dark ? '#0B0C0E' : '#F1F2F5';
   }, [dark]);
+
+  // custom accent (Settings → Appearance) overrides the theme's default red;
+  // bright accents flip the on-accent text to dark so buttons stay readable
+  const accent = store.profile?.accent;
+  const accentVars = useMemo(() => {
+    if (!/^#[0-9a-fA-F]{6}$/.test(accent || '')) return undefined;
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(accent.slice(i, i + 2), 16));
+    const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return {
+      '--accent': accent,
+      '--accent-press': `color-mix(in srgb, ${accent} 82%, #000)`,
+      '--accent-soft': `rgba(${r},${g},${b},0.16)`,
+      '--on-accent': lum > 0.62 ? '#14161A' : '#FFFFFF',
+    };
+  }, [accent]);
 
   if (!store.loaded) {
     return <div className="gt-app" style={{ position: 'fixed', inset: 0 }} />;
   }
 
   return (
-    <div className={'gt-app' + (dark ? '' : ' light')} style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div className={'gt-app' + (dark ? '' : ' light')} style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', ...accentVars }}>
       <div style={{ flex: 1, minHeight: 0, position: 'relative', maxWidth: 520, width: '100%', margin: '0 auto', paddingTop: 'env(safe-area-inset-top)' }}>
         {tab === 'today' && <TodayScreen />}
         {tab === 'metrics' && <MetricsScreen />}
         {tab === 'records' && <RecordsScreen />}
-        {tab === 'history' && <HistoryScreen />}
         {tab === 'settings' && <SettingsScreen />}
       </div>
       <TabBar tab={tab} onChange={setTab} />
