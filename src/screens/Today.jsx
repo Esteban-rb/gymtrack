@@ -56,18 +56,18 @@ function LogRow({ draft, setDraft, onLog, editing }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 10 }}>
       <div style={{ display: 'flex', gap: 8 }}>
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div className="gt-micro" style={{ margin: '0 0 5px 4px' }}>WEIGHT</div>
           <Stepper value={draft.value} step={step} width={'100%'} onChange={(v) => setDraft({ ...draft, value: v })} format={(v) => v} />
         </div>
-        <div style={{ width: 118 }}>
+        <div style={{ width: 118, flexShrink: 0 }}>
           <div className="gt-micro" style={{ margin: '0 0 5px 4px' }}>REPS</div>
           <Stepper value={draft.reps} step={1} min={1} width={'100%'} onChange={(v) => setDraft({ ...draft, reps: v })} />
         </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
         <UnitChips value={draft.unit} onChange={(u) => setDraft({ ...draft, unit: u })} />
-        <button className="gt-btn gt-btn-primary" style={{ minHeight: 44, padding: '0 18px', fontSize: 14 }} onClick={onLog}>
+        <button className="gt-btn gt-btn-primary" style={{ minHeight: 44, padding: '0 18px', fontSize: 14, flexShrink: 0 }} onClick={onLog}>
           <GIcon name={editing ? 'check' : 'plus'} size={17} stroke={2.4} />
           {editing ? 'Save' : 'Log set'}
         </button>
