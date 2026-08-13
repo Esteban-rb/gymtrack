@@ -382,9 +382,12 @@ function TabIcon({ id }) {
     </svg>
   );
 }
+/* Fondo sólido, sin backdrop-filter: el blur obliga a Chrome a capturar la región de detrás
+ * en una textura aparte, y en Android esa captura salía a veces con basura de GPU sobre Today
+ * — una franja de ruido que no se limpiaba hasta el siguiente repintado. */
 export function TabBar({ tab, onChange }) {
   return (
-    <div style={{ position: 'fixed', left: 14, right: 14, bottom: 'calc(14px + env(safe-area-inset-bottom))', zIndex: 40, display: 'flex', gap: 4, padding: 6, borderRadius: 999, background: 'var(--tabbar-bg)', border: '1px solid var(--border)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', boxShadow: 'var(--tabbar-shadow)', maxWidth: 520, margin: '0 auto' }}>
+    <div style={{ position: 'fixed', left: 14, right: 14, bottom: 'calc(14px + env(safe-area-inset-bottom))', zIndex: 40, display: 'flex', gap: 4, padding: 6, borderRadius: 999, background: 'var(--tabbar-bg)', border: '1px solid var(--border)', boxShadow: 'var(--tabbar-shadow)', maxWidth: 520, margin: '0 auto' }}>
       {TABS.map((t) => {
         const on = tab === t.id;
         return (

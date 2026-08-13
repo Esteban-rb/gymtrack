@@ -30,7 +30,7 @@ html, body {
   --warning: #FFD60A;
   --chart-grid: rgba(255, 255, 255, 0.07);
   --chart-muted: rgba(255, 255, 255, 0.22);
-  --tabbar-bg: rgba(18, 20, 24, 0.86);
+  --tabbar-bg: #131519;   /* opaco: el color que daba el blur al componer sobre el fondo */
   --tabbar-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   --sheet-bg: #1A1C21;
   --input-bg: rgba(255, 255, 255, 0.07);
@@ -61,7 +61,7 @@ html, body {
   --warning: #B7791F; /* the dark-theme yellow is illegible on white */
   --chart-grid: rgba(20, 22, 26, 0.07);
   --chart-muted: rgba(20, 22, 26, 0.25);
-  --tabbar-bg: rgba(255, 255, 255, 0.92);
+  --tabbar-bg: #FFFFFF;
   --tabbar-shadow: 0 10px 30px rgba(20, 22, 26, 0.14);
   --sheet-bg: #FFFFFF;
   --input-bg: #F1F2F5;
