@@ -154,6 +154,8 @@ html, body {
 .gt-divider { height: 1px; background: var(--border); }
 .gt-scroll { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
 .gt-scroll::-webkit-scrollbar { display: none; }
+.gt-scroll-x { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+.gt-scroll-x::-webkit-scrollbar { display: none; }
 
 @keyframes gt-pop { 0% { transform: scale(0.6); opacity: 0; } 60% { transform: scale(1.08); } 100% { transform: scale(1); opacity: 1; } }
 @keyframes gt-slide-up { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }

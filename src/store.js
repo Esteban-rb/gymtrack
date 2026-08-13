@@ -67,15 +67,38 @@ export const useStore = create((set, get) => ({
     return variants[pos];
   },
 
-  /** Variants finished in the active cycle (for the x/6 progress ring). Returns a Set of codes. */
-  cycleDone: () => {
+  /** Variants finished in a cycle (defaults to the active one, for the x/6 progress ring).
+   *  Returns a Set of codes. */
+  cycleDone: (cycle) => {
     const { period, workouts } = get();
     const done = new Set();
     if (!period) return done;
+    const target = cycle ?? period.cycle ?? 1;
     for (const w of workouts) {
-      if (w.periodId === period.id && w.finished && (w.cycle ?? 1) === (period.cycle ?? 1)) done.add(w.variant);
+      if (w.periodId === period.id && w.finished && (w.cycle ?? 1) === target) done.add(w.variant);
     }
     return done;
+  },
+
+  /** Point the rotation at another cycle — the fix for a cycle that ran ahead while
+   *  variants were still pending. An unfinished session today follows the pointer
+   *  (keeping its variant and sets); a finished one is left where it is. */
+  setActiveCycle: async (cycle) => {
+    const { period, variants } = get();
+    if (!period || !variants.length || cycle < 1 || cycle === (period.cycle ?? 1)) return;
+    const existing = get().todayWorkout();
+    const keep = existing && !existing.finished;   // la sesión en curso conserva su variante
+    const patch = { cycle };
+    if (!keep) {
+      const pending = variants.find((v) => !get().cycleDone(cycle).has(v.code));
+      patch.rotationPos = pending ? variants.indexOf(pending) : 0;
+    }
+    await get().updatePeriod(patch);
+    if (keep) {
+      const w = { ...existing, cycle };
+      await db.workouts.put(w);
+      set({ workouts: get().workouts.map((x) => (x.id === w.id ? w : x)) });
+    }
   },
 
   /** Point the rotation at a chosen variant. An in-progress session today is retargeted to it;
@@ -90,7 +113,7 @@ export const useStore = create((set, get) => ({
       const w = { ...existing, variant: v.code, block: v.name, cycle: get().period.cycle ?? 1, entries: v.exerciseIds.map((exerciseId) => ({ exerciseId })) };
       await db.workouts.put(w);
       set({ workouts: get().workouts.map((x) => (x.id === w.id ? w : x)) });
-    } else if (existing && existing.finished && existing.variant !== variantCode) {
+    } else if (existing && existing.finished && (existing.variant !== variantCode || (existing.cycle ?? 1) !== (get().period.cycle ?? 1))) {
       await get().createWorkout(variantCode);
     }
   },
@@ -215,15 +238,27 @@ export const useStore = create((set, get) => ({
     await db.workouts.put(next);
     const workouts = get().workouts.map((x) => (x.id === workoutId ? next : x));
     set({ workouts });
-    // Advance the rotation from the finished variant; wrapping past L3 starts a new cycle.
+    // Advance to the next variant still pending in this cycle. The cycle only rolls over
+    // once all six are done, so jumping the order (Change) can't skip a cycle ahead.
+    // A session logged for another cycle leaves the pointer alone.
     const { period, variants } = get();
-    if (period && variants.length) {
+    const cur = period?.cycle ?? 1;
+    if (period && variants.length && (w.cycle ?? 1) === cur) {
       const n = variants.length;
+      const done = new Set();
+      for (const x of workouts) {
+        if (x.periodId === period.id && x.finished && (x.cycle ?? 1) === cur) done.add(x.variant);
+      }
       const finIdx = variants.findIndex((v) => v.code === w.variant);
       const base = finIdx >= 0 ? finIdx : (period.rotationPos ?? 0);
-      const newPos = (base + 1) % n;
-      const newCycle = (period.cycle ?? 1) + (newPos === 0 ? 1 : 0);
-      await get().updatePeriod({ rotationPos: newPos, cycle: newCycle });
+      let nextPos = -1;
+      for (let i = 1; i <= n; i++) {
+        const idx = (base + i) % n;
+        if (!done.has(variants[idx].code)) { nextPos = idx; break; }
+      }
+      await get().updatePeriod(nextPos >= 0
+        ? { rotationPos: nextPos, cycle: cur }        // quedan variantes: el ciclo se queda
+        : { rotationPos: 0, cycle: cur + 1 });        // ciclo completo: rueda al siguiente
     }
     const logs = buildLogs(workouts, get().setsByWorkout, w.periodId, get().exMap());
     const entry = (logs[w.cycle ?? 1] || {})[w.variant];

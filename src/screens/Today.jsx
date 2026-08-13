@@ -1,11 +1,20 @@
 // GymTrack — Today: rotation-driven session plan, quick set logging, back-off tags, finish celebration.
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store.js';
 import { buildLogs, dayVolume, lastSetsGlobal } from '../metrics.js';
 import { fmtWeight, suggestOverload, splitUnit, isoDate } from '../calc.js';
 import { GIcon, Stepper, UnitChips, Sheet, Confetti, EmptyState } from '../components.jsx';
 
 const haptic = () => { try { navigator.vibrate && navigator.vibrate(12); } catch { /* unsupported */ } };
+
+/** Cycles the picker offers: the mesocycle is exactly `cycleGoal` cycles long (Settings).
+ *  It never grows by tapping the last one. It only stretches past the goal for cycles that
+ *  already exist — the rotation sitting on goal+1 waiting to be archived, or sessions logged
+ *  beyond it (e.g. after lowering the goal), which must stay reachable. */
+export function cycleRange(cycleGoal, current, loggedCycles = []) {
+  const top = Math.max(cycleGoal || 6, current || 1, ...loggedCycles, 1);
+  return Array.from({ length: top }, (_, i) => i + 1);
+}
 
 /* Effective back-off state of a set: auto = realKg dropped below the exercise's first set,
  * unless the user has pinned it with backoffForce. */
@@ -193,6 +202,7 @@ export default function TodayScreen() {
   const [swapIdx, setSwapIdx] = useState(null);
   const [swapQuery, setSwapQuery] = useState('');
   const [variantSheet, setVariantSheet] = useState(false);
+  const cycleRowRef = useRef(null);
   const [celebrate, setCelebrate] = useState(null);
   const [justLogged, setJustLogged] = useState(null);
 
@@ -206,6 +216,29 @@ export default function TodayScreen() {
 
   const doneSet = store.cycleDone();
   const doneCount = doneSet.size;
+
+  // Variants finished per cycle of this period — feeds the cycle picker.
+  const cycleCounts = useMemo(() => {
+    const m = {};
+    if (!period) return m;
+    for (const w of workouts) {
+      if (w.periodId !== period.id || !w.finished) continue;
+      const c = w.cycle ?? 1;
+      (m[c] = m[c] || new Set()).add(w.variant);
+    }
+    return m;
+  }, [workouts, period]);
+
+  const cycleOptions = useMemo(
+    () => cycleRange(cycleGoal, cycle, Object.keys(cycleCounts).map(Number)),
+    [cycleGoal, cycle, cycleCounts]
+  );
+
+  // the row can hold a dozen cycles — open it already scrolled to the one you're on
+  useEffect(() => {
+    if (!variantSheet) return;
+    cycleRowRef.current?.querySelector('[data-active="1"]')?.scrollIntoView?.({ inline: 'center', block: 'nearest' });
+  }, [variantSheet]);
 
   const entries = workout ? workout.entries : (variant ? variant.exerciseIds.map((exerciseId) => ({ exerciseId })) : []);
   const todaySets = workout ? (setsByWorkout[workout.id] || []) : [];
@@ -322,9 +355,27 @@ export default function TodayScreen() {
         </button>
       )}
 
-      {/* Jump to another variant */}
-      <Sheet open={variantSheet} onClose={() => setVariantSheet(false)} title="Jump to another variant">
-        <div className="gt-sub" style={{ marginBottom: 14, lineHeight: 1.5 }}>It advances on its own when you finish. Use this if you break the order — sets already logged still count.</div>
+      {/* Jump to another cycle / variant */}
+      <Sheet open={variantSheet} onClose={() => setVariantSheet(false)} title="Change cycle or variant">
+        <div className="gt-sub" style={{ marginBottom: 14, lineHeight: 1.5 }}>The rotation advances on its own, and the cycle only rolls over once all {variants.length || 6} variants are done. Use this if you broke the order — sets already logged still count.</div>
+
+        <div className="gt-label" style={{ color: 'var(--text-2)', marginBottom: 8 }}>Cycle</div>
+        <div ref={cycleRowRef} className="gt-scroll-x" style={{ display: 'flex', gap: 8, paddingBottom: 4, marginBottom: 18 }}>
+          {cycleOptions.map((c) => {
+            const isActive = c === cycle;
+            const done = (cycleCounts[c] || new Set()).size;
+            const full = done >= (variants.length || 6);
+            return (
+              <button key={c} onClick={() => store.setActiveCycle(c)} aria-label={'go to cycle ' + c} data-active={isActive ? '1' : undefined}
+                style={{ flexShrink: 0, minWidth: 62, padding: '9px 12px', borderRadius: 14, cursor: 'pointer', font: 'inherit', textAlign: 'center', background: isActive ? 'var(--accent-soft)' : 'var(--input-bg)', color: 'var(--text)', border: '1px solid ' + (isActive ? 'var(--accent)' : full ? 'color-mix(in srgb, var(--success) 45%, transparent)' : 'var(--border)') }}>
+                <div className="gt-num" style={{ fontSize: 17, color: isActive ? 'var(--accent)' : full ? 'var(--success)' : 'var(--text)' }}>C{c}</div>
+                <div className="gt-micro" style={{ marginTop: 2 }}>{done}/{variants.length || 6}</div>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="gt-label" style={{ color: 'var(--text-2)', marginBottom: 8 }}>Variant · cycle {cycle}</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           {variants.map((v) => {
             const done = doneSet.has(v.code);
