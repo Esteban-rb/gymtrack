@@ -101,12 +101,15 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  /** Point the rotation at a chosen variant. An in-progress session today is retargeted to it;
-   *  a finished one stays untouched and a fresh second session starts for the new variant. */
+  /** Point the rotation at a chosen variant. Navigating to a variant already trained in this
+   *  cycle just shows that session (Today renders it) — nothing is created or retargeted.
+   *  Otherwise an in-progress session today is retargeted to it, and a finished one stays
+   *  untouched while a fresh second session starts for the new variant. */
   setActiveVariant: async (variantCode) => {
     const idx = get().variants.findIndex((v) => v.code === variantCode);
     if (idx < 0) return;
     await get().updatePeriod({ rotationPos: idx });
+    if (get().sessionFor(variantCode)) return;   // ya entrenada: se abre en modo consulta
     const existing = get().todayWorkout();
     if (existing && !existing.finished) {
       const v = get().variantMap()[variantCode];
@@ -189,6 +192,29 @@ export const useStore = create((set, get) => ({
     const { workouts, period } = get();
     const today = workouts.filter((w) => w.date === isoDate() && (!period || w.periodId === period.id));
     return today.find((w) => !w.finished) || today[today.length - 1] || null;
+  },
+
+  /** The session already logged for a cycle + variant of the active period, whatever day it
+   *  was trained (defaults to the queued variant and the current cycle). */
+  sessionFor: (variantCode, cycle) => {
+    const { period, workouts } = get();
+    const code = variantCode || get().currentVariant()?.code;
+    if (!period || !code) return null;
+    const target = cycle ?? period.cycle ?? 1;
+    const found = workouts
+      .filter((w) => w.periodId === period.id && w.variant === code && (w.cycle ?? 1) === target)
+      .sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+    return found[found.length - 1] || null;
+  },
+
+  /** What Today shows: the session of the day if there is one, otherwise the one already
+   *  logged for the cycle + variant the rotation points at. Without this, walking back to a
+   *  variant trained on another day rendered an empty plan instead of what was lifted. */
+  sessionInView: () => {
+    const today = get().todayWorkout();
+    const code = get().currentVariant()?.code;
+    if (today && today.variant === code) return today;
+    return get().sessionFor(code) || today;
   },
 
   /** Create today's workout from a rotation variant (defaults to the queued one). */

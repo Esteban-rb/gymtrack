@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store.js';
 import { buildLogs, dayVolume, lastSetsGlobal } from '../metrics.js';
-import { fmtWeight, suggestOverload, splitUnit, isoDate } from '../calc.js';
+import { fmtWeight, suggestOverload, splitUnit, isoDate, fmtDate } from '../calc.js';
 import { GIcon, Stepper, UnitChips, Sheet, Confetti, EmptyState } from '../components.jsx';
 
 const haptic = () => { try { navigator.vibrate && navigator.vibrate(12); } catch { /* unsupported */ } };
@@ -206,7 +206,7 @@ export default function TodayScreen() {
   const [celebrate, setCelebrate] = useState(null);
   const [justLogged, setJustLogged] = useState(null);
 
-  const workout = store.todayWorkout();
+  const workout = store.sessionInView();
   const pending = store.currentVariant();
   const activeCode = workout ? workout.variant : pending?.code;
   const variantMap = store.variantMap();
@@ -249,6 +249,9 @@ export default function TodayScreen() {
   const totalSets = todaySets.length;
   const finished = !!workout?.finished;
   const overGoal = period && cycle > cycleGoal;
+  // a session trained on another day: shown as a record of what was lifted, not as today's plan
+  const viewDate = workout ? workout.date : isoDate();
+  const past = !!workout && viewDate !== isoDate();
 
   const ensureWorkout = async () => workout || (await store.createWorkout(activeCode));
 
@@ -319,13 +322,26 @@ export default function TodayScreen() {
         </div>
       )}
 
-      {finished && (
-        <div className="gt-card" style={{ padding: '16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12, borderColor: 'var(--success)', background: 'var(--success-soft)' }}>
-          <div style={{ width: 34, height: 34, borderRadius: 99, background: 'var(--success)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><GIcon name="check" size={18} stroke={2.6} /></div>
-          <div>
-            <div className="gt-h2" style={{ fontSize: 15 }}>Workout complete</div>
-            <div className="gt-sub">{totalSets} sets · {(dayVolume((logs[workout.cycle ?? cycle] || {})[workout.variant]) / 1000).toFixed(1)} t total. You can still edit sets.</div>
+      {(finished || past) && workout && (
+        <div className="gt-card" style={{ padding: '16px', marginBottom: 12, borderColor: past ? 'var(--border-strong)' : 'var(--success)', background: past ? undefined : 'var(--success-soft)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 34, height: 34, borderRadius: 99, flexShrink: 0, background: past ? 'var(--surface-2)' : 'var(--success)', color: past ? 'var(--text-2)' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <GIcon name={past ? 'calendar' : 'check'} size={18} stroke={2.6} />
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div className="gt-h2" style={{ fontSize: 15 }}>{past ? fmtDate(viewDate) : 'Workout complete'}</div>
+              <div className="gt-sub">
+                {totalSets} sets · {(dayVolume((logs[workout.cycle ?? cycle] || {})[workout.variant]) / 1000).toFixed(1)} t total.
+                {past ? ' This is what you logged that day — edits still apply.' : ' You can still edit sets.'}
+              </div>
+            </div>
           </div>
+          {past && (
+            <button className="gt-btn gt-btn-ghost" style={{ width: '100%', marginTop: 12, minHeight: 46, fontSize: 14 }}
+              onClick={() => store.createWorkout(activeCode)}>
+              <GIcon name="plus" size={16} stroke={2.4} />Train {variant?.code} again today
+            </button>
+          )}
         </div>
       )}
 
@@ -337,7 +353,8 @@ export default function TodayScreen() {
         entries.map((en, i) => {
           const exercise = exMap[en.exerciseId] || { id: en.exerciseId, name: en.exerciseId, muscle: '—', unit: 'kg' };
           const sets = todaySets.filter((s) => s.exerciseId === en.exerciseId).sort((a, b) => a.n - b.n);
-          const last = lastSetsGlobal(workouts, setsByWorkout, en.exerciseId, isoDate());
+          // reference is what came *before* the session on screen, not before today
+          const last = lastSetsGlobal(workouts, setsByWorkout, en.exerciseId, viewDate);
           return (
             <ExerciseCard key={en.exerciseId + i} exercise={exercise} sets={sets} last={last} justLogged={justLogged === i}
               onLogSet={(d) => logSet(i, d)}

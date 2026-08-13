@@ -5,6 +5,7 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeAll } from 'vitest';
 import { useStore } from './store.js';
+import { db } from './db.js';
 import { cycleRange } from './screens/Today.jsx';
 
 const store = () => useStore.getState();
@@ -91,5 +92,51 @@ describe('rotation pointer', () => {
     expect(moved.cycle).toBe(5);
     expect(moved.variant).toBe('L1');                        // conserva su variante
     expect(store().setsByWorkout[w.id]).toHaveLength(1);     // y sus series
+  });
+});
+
+describe('walking back to a session already trained', () => {
+  let yesterdayId;
+
+  // período limpio: las sesiones de los tests anteriores quedan en el archivado
+  beforeAll(async () => {
+    await store().archiveAndStartNew();
+    const w = await store().createWorkout('U1');
+    await store().logSet(w.id, w.entries[0].exerciseId, { value: 60, reps: 10, unit: 'kg' });
+    await store().logSet(w.id, w.entries[0].exerciseId, { value: 55, reps: 12, unit: 'kg' });
+    await store().finishWorkout(w.id);
+    // moverla a ayer: es el caso que rompía — Today solo miraba sesiones de hoy
+    const next = { ...store().workouts.find((x) => x.id === w.id), date: '2020-01-02' };
+    await db.workouts.put(next);
+    useStore.setState({ workouts: store().workouts.map((x) => (x.id === w.id ? next : x)) });
+    yesterdayId = w.id;
+  });
+
+  it('shows what was logged instead of an empty plan', async () => {
+    await store().setActiveVariant('U1');
+    const inView = store().sessionInView();
+    expect(inView.id).toBe(yesterdayId);
+    expect(store().setsByWorkout[inView.id]).toHaveLength(2);
+  });
+
+  it('does not create a second session just by navigating to it', async () => {
+    const before = store().workouts.length;
+    await store().setActiveVariant('U1');
+    await store().setActiveVariant('U1');
+    expect(store().workouts).toHaveLength(before);
+  });
+
+  it('keeps today\'s in-progress session untouched while showing the older one', async () => {
+    const todayW = await store().createWorkout('L1');
+    await store().logSet(todayW.id, todayW.entries[0].exerciseId, { value: 40, reps: 10, unit: 'kg' });
+
+    await store().setActiveVariant('U1');                    // navegar a la de ayer
+    expect(store().sessionInView().id).toBe(yesterdayId);    // se muestra la de ayer
+    const stillL1 = store().workouts.find((x) => x.id === todayW.id);
+    expect(stillL1.variant).toBe('L1');                      // la de hoy no se retargetea
+    expect(stillL1.finished).toBe(false);
+
+    await store().setActiveVariant('L1');                    // y volver a la de hoy la recupera
+    expect(store().sessionInView().id).toBe(todayW.id);
   });
 });
