@@ -2,9 +2,12 @@
 import { create } from 'zustand';
 import { db, ensureSeeded } from './db.js';
 import { toKg, est1RM, isoDate, mondayOf, weekOfPeriod, dayKeyOf, medalForStandards, medalForProgression } from './calc.js';
-import { bestSet, dayPRs, buildLogs, dayVolume, workoutsDone, cycleVolume, exerciseSeries } from './metrics.js';
+import { bestSet, dayPRs, buildLogs, dayVolume, workoutsDone, cycleVolume, exerciseSeries, shouldAutoFinish } from './metrics.js';
 
 const sortByOrder = (a, b) => (a.order ?? 0) - (b.order ?? 0);
+
+/** Sets per exercise that mark a session as "done" for the auto-finish rule. */
+export const AUTO_FINISH_MIN_SETS = 2;
 
 export const useStore = create((set, get) => ({
   loaded: false,
@@ -294,6 +297,17 @@ export const useStore = create((set, get) => ({
       prs: dayPRs(logs, w.cycle ?? 1, w.variant),
       workoutNum: workoutsDone(logs),
     };
+  },
+
+  /** Close the session by itself once every exercise of the plan has 2+ sets.
+   *  Returns the finish summary (tagged `auto`) so Today can pop the same celebration,
+   *  or null when the plan isn't covered yet / the user turned it off in Settings. */
+  autoFinishIfComplete: async (workoutId) => {
+    if (get().profile?.autoFinish === false) return null;
+    const w = get().workouts.find((x) => x.id === workoutId);
+    if (!shouldAutoFinish(w, get().setsByWorkout[workoutId], AUTO_FINISH_MIN_SETS)) return null;
+    const summary = await get().finishWorkout(workoutId);
+    return summary ? { ...summary, auto: true } : null;
   },
 
   /* ---------------- sets ---------------- */

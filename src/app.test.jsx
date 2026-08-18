@@ -26,18 +26,22 @@ const waitFor = (cond, label) => vi.waitFor(() => {
 }, { timeout: 4000 });
 
 describe('app boots and core flows work', () => {
-  it('renders Today after seeding, and every tab opens', async () => {
+  it('renders Home after seeding, and every tab opens', async () => {
     await act(async () => {
       createRoot(document.body.appendChild(document.createElement('div'))).render(<App />);
     });
-    await waitFor(() => text().includes('SETS'), 'Today screen');
+    // the dashboard is the landing tab now
+    await waitFor(() => text().includes('Workouts'), 'Home screen');
     expect(text()).toContain('Cycle 1');
+    expect(text()).toContain('Upper 1');           // widget 1: the variant on deck
+    expect(text()).toContain('No records yet');    // widget 2: nothing logged yet
 
     for (const [tab, marker] of [
+      ['Today', 'SETS'],
       ['Metrics', 'No data yet'],
       ['Records', ''],
       ['Settings', 'Mesocycle'],
-      ['Today', 'SETS'],
+      ['Home', 'Workouts'],
     ]) {
       click(`[aria-label="${tab}"]`);
       await waitFor(() => text().includes(marker), tab + ' screen');
@@ -88,5 +92,69 @@ describe('app boots and core flows work', () => {
     await waitFor(() => text().includes('Archived ·'), 'History opens the period with data');
     click('[aria-label="back to settings"]');
     await waitFor(() => !text().includes('Archived ·'), 'History closes back to Settings');
+  });
+
+  it('Home shows the record of the day and opens the streak sheet', async () => {
+    click('[aria-label="Home"]');
+    await waitFor(() => text().includes('Workouts'), 'Home screen');
+    // the PR logged above belongs to U1 — the variant on deck — so its widget picks it up
+    expect(text()).toContain('Incline Press');
+    expect(text()).toContain('20kg ×2');   // value and unit are separate spans
+    expect(text()).toContain('× 10 reps');
+    expect(text()).toContain('PR ·');
+
+    click('[aria-label="open streak"]');
+    await waitFor(() => text().includes('CURRENT'), 'streak sheet');
+    expect(text()).toContain('BEST');
+    expect(text()).toContain('Last 12 weeks');
+    // one finished session, today → a 1-day streak
+    expect(text()).toContain('today is already logged');
+    click('[aria-label="close"]');
+    await waitFor(() => !text().includes('Last 12 weeks'), 'streak sheet closes');
+
+    // the settings button on the header jumps to the Settings tab
+    click('[aria-label="open settings"]');
+    await waitFor(() => text().includes('Mesocycle'), 'Settings from Home');
+  });
+
+  it('auto-finishes a session once every exercise has 2 sets', async () => {
+    const store = useStore.getState();
+    const w = await act(() => store.createWorkout('L1'));
+    const ids = w.entries.map((en) => en.exerciseId);
+    expect(ids.length).toBeGreaterThan(1);
+
+    let auto = null;
+    for (let round = 1; round <= 2; round++) {
+      for (const id of ids) {
+        await act(() => useStore.getState().logSet(w.id, id, { value: 40, reps: 8, unit: 'kg' }));
+        auto = await act(() => useStore.getState().autoFinishIfComplete(w.id));
+        // only the very last set of the second round covers the whole plan
+        const isLast = round === 2 && id === ids[ids.length - 1];
+        expect(!!auto).toBe(isLast);
+      }
+    }
+    expect(auto.auto).toBe(true);
+    expect(useStore.getState().workouts.find((x) => x.id === w.id).finished).toBe(true);
+
+    // turning it off leaves the next session open
+    await act(() => useStore.getState().updateProfile({ autoFinish: false }));
+    const w2 = await act(() => useStore.getState().createWorkout('L2'));
+    for (const en of w2.entries) {
+      for (let i = 0; i < 2; i++) await act(() => useStore.getState().logSet(w2.id, en.exerciseId, { value: 30, reps: 10, unit: 'kg' }));
+    }
+    expect(await act(() => useStore.getState().autoFinishIfComplete(w2.id))).toBe(null);
+    expect(useStore.getState().workouts.find((x) => x.id === w2.id).finished).toBe(false);
+    await act(() => useStore.getState().updateProfile({ autoFinish: true }));
+  });
+
+  it('the Mono accent repaints the app in black & white', async () => {
+    await act(() => useStore.getState().updateProfile({ accent: 'mono' }));
+    expect(document.querySelector('.gt-app.mono')).toBeTruthy();
+    // 'mono' is not a hex, so no inline --accent override leaks through
+    expect(document.querySelector('.gt-app').style.getPropertyValue('--accent')).toBe('');
+
+    await act(() => useStore.getState().updateProfile({ accent: '#0A84FF' }));
+    expect(document.querySelector('.gt-app.mono')).toBeNull();
+    expect(document.querySelector('.gt-app').style.getPropertyValue('--accent')).toBe('#0A84FF');
   });
 });

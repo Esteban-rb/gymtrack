@@ -1,6 +1,11 @@
 // GymTrack — shared UI (icons, medals, charts, tab bar, inputs), ported from the design prototype.
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { BASE_UNITS, splitUnit, joinUnit, MEDALS, fmtDate } from './calc.js';
+import { useStore } from './store.js';
+
+/** The Mono accent is a whole black & white system, not just a hue: the few places that
+ *  paint with literal hexes (medal gradients, confetti) ask here instead of guessing. */
+export const useMono = () => useStore((s) => s.profile?.accent === 'mono');
 
 /* ============ Icons (24px stroke set) ============ */
 export function GIcon({ name, size = 22, stroke = 1.8, style }) {
@@ -41,12 +46,22 @@ const MEDAL_TINTS = [
   { l: '#E3FAF4', m: '#AFE6DC', d: '#74BFB1' },   // platinum
   { l: '#CDEDFF', m: '#6FD2FF', d: '#3D9BD6' },   // diamond
 ];
+// Same five tiers rendered in greys for the Mono accent — the ranking still reads,
+// bronze (darkest) → diamond (white), without a drop of color.
+const MONO_TINTS = [
+  { l: '#8B9098', m: '#5F646C', d: '#3C4046' },   // bronze
+  { l: '#B4B9C1', m: '#878D96', d: '#5A5F67' },   // silver
+  { l: '#E4E7EC', m: '#C6CBD3', d: '#8B9098' },   // gold
+  { l: '#F2F4F7', m: '#E2E5EA', d: '#A8ADB6' },   // platinum
+  { l: '#FFFFFF', m: '#FFFFFF', d: '#C6CBD3' },   // diamond
+];
 // Ornamentation grows with tier: Bronze = ring · Silver = +crown · Gold = +wings ·
 // Platinum = +2nd petals · Diamond = full lotus + gem.
 export function MedalBadge({ level, size = 44, animate = false }) {
+  const mono = useMono();
   const locked = level < 0;
-  const t = locked ? { l: '#8A8F98', m: '#62687260', d: '#3A3E45' } : MEDAL_TINTS[level];
-  const gid = 'mg' + (locked ? 'x' : level);
+  const t = locked ? { l: '#8A8F98', m: '#62687260', d: '#3A3E45' } : (mono ? MONO_TINTS : MEDAL_TINTS)[level];
+  const gid = 'mg' + (mono ? 'm' : '') + (locked ? 'x' : level);
   const stroke = { stroke: locked ? 'var(--text-3)' : t.d, strokeWidth: 0.9, strokeLinejoin: 'round' };
   const petal = (a, key, len = 1) => (
     <path key={key} d={'M32 ' + (10 - (len - 1) * 3) + ' C36 ' + (15 - (len - 1) * 2) + ' 36.5 20 32 24.5 C27.5 20 28 ' + (15 - (len - 1) * 2) + ' 32 ' + (10 - (len - 1) * 3) + ' Z'} transform={'rotate(' + a + ' 32 36)'} fill={'url(#' + gid + ')'} {...stroke} />
@@ -91,6 +106,24 @@ export function ProgressBar({ value, max, height = 8, color = 'var(--accent)' })
   return (
     <div style={{ height, borderRadius: 999, background: 'var(--input-bg)', overflow: 'hidden' }}>
       <div style={{ width: pct + '%', height: '100%', borderRadius: 999, background: color, transition: 'width 0.5s cubic-bezier(.4,0,.2,1)' }} />
+    </div>
+  );
+}
+
+/* ============ Progress ring — a number inside an arc (Home widgets) ============ */
+export function RingProgress({ value, max, size = 78, thickness = 5, children }) {
+  const r = (size - thickness) / 2;
+  const circ = 2 * Math.PI * r;
+  const pct = max > 0 ? Math.min(1, Math.max(0, value / max)) : 0;
+  return (
+    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
+      <svg width={size} height={size} viewBox={'0 0 ' + size + ' ' + size} style={{ transform: 'rotate(-90deg)' }} aria-hidden="true">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--input-bg)" strokeWidth={thickness} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--accent)" strokeWidth={thickness} strokeLinecap="round"
+          strokeDasharray={circ} strokeDashoffset={circ * (1 - pct)}
+          style={{ transition: 'stroke-dashoffset 0.6s cubic-bezier(.4,0,.2,1)' }} />
+      </svg>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{children}</div>
     </div>
   );
 }
@@ -190,7 +223,9 @@ export function LineChart({ data, height = 120, valueKey = 'kg', labelKey = 'wee
           <text x={x(i)} y={H + 12} textAnchor="middle" fontSize="10" fontWeight="600" fill="var(--text-3)" fontFamily="Manrope">{fmtLabel(d[labelKey])}</text>
         </g>
       ))}
-      <text x={x(last)} y={y(vals[last]) - 10} textAnchor="middle" fontSize="12" fontWeight="700" fill="var(--text)" fontFamily="Oswald">{fmtVal(vals[last])}</text>
+      {/* clamped: when the last point is the maximum it sits at the top padding and the
+          label would be cut off by the viewBox */}
+      <text x={x(last)} y={Math.max(11, y(vals[last]) - 10)} textAnchor="middle" fontSize="12" fontWeight="700" fill="var(--text)" fontFamily="Oswald">{fmtVal(vals[last])}</text>
     </svg>
   );
 }
@@ -220,7 +255,9 @@ export function Sparkline({ data, valueKey = 'kg', width = 70, height = 26 }) {
   );
 }
 
-export const DONUT_COLORS = ['var(--accent)', '#FF8A5C', '#FFC15C', 'var(--chart-muted)', '#8B93A1', '#5C6470', '#3E444E', '#2C3138'];
+/* Series colors live in CSS so a theme can restyle the whole chart set — the Mono accent
+ * swaps them for greys. */
+export const DONUT_COLORS = ['var(--accent)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)', 'var(--chart-6)', 'var(--chart-7)', 'var(--chart-8)'];
 export function Donut({ data, size = 130, thickness = 16 }) {
   const total = data.reduce((a, b) => a + b.kg, 0) || 1;
   const R = (size - thickness) / 2, C = size / 2;
@@ -244,11 +281,14 @@ export function Donut({ data, size = 130, thickness = 16 }) {
 /* ============ Confetti ============ */
 export function Confetti({ run }) {
   const ref = useRef(null);
+  const mono = useMono();
   useEffect(() => {
     if (!run || !ref.current) return;
     const cv = ref.current, ctx = cv.getContext('2d');
     const w = (cv.width = cv.offsetWidth * 2), h = (cv.height = cv.offsetHeight * 2);
-    const colors = ['#FF3B30', '#F5C242', '#6FD2FF', '#32D74B', '#FFFFFF', '#FF8A5C'];
+    const colors = mono
+      ? ['#FFFFFF', '#E2E5EA', '#C6CBD3', '#9EA3AB', '#787D85', '#FFFFFF']
+      : ['#FF3B30', '#F5C242', '#6FD2FF', '#32D74B', '#FFFFFF', '#FF8A5C'];
     const parts = Array.from({ length: 130 }, () => ({
       x: Math.random() * w, y: -40 - Math.random() * h * 0.5,
       vx: (Math.random() - 0.5) * 3, vy: 3 + Math.random() * 5,
@@ -270,7 +310,7 @@ export function Confetti({ run }) {
     };
     tick();
     return () => cancelAnimationFrame(raf);
-  }, [run]);
+  }, [run, mono]);
   return <canvas ref={ref} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 5 }} />;
 }
 
@@ -362,6 +402,7 @@ export function PeriodFinishOverlay({ summary, onClose }) {
 
 /* ============ Tab bar ============ */
 export const TABS = [
+  { id: 'home', label: 'Home' },
   { id: 'today', label: 'Today' },
   { id: 'metrics', label: 'Metrics' },
   { id: 'records', label: 'Records' },
@@ -370,6 +411,7 @@ export const TABS = [
 // Redesigned bottom-bar icons (from the Claude Design handoff).
 function TabIcon({ id }) {
   const glyph = {
+    home: <g><rect x="4" y="4" width="6.8" height="6.8" rx="2.1" /><rect x="13.2" y="4" width="6.8" height="6.8" rx="2.1" /><rect x="4" y="13.2" width="6.8" height="6.8" rx="2.1" /><rect x="13.2" y="13.2" width="6.8" height="6.8" rx="2.1" /></g>,
     today: <path d="M6.5 9.3v5.4M9 7.8v8.4M15 7.8v8.4M17.5 9.3v5.4M9 12h6" />,
     metrics: <g><path d="M4 18.5h15" opacity="0.45" /><path d="M5 14.4l4.3-4.2 3 2.6 5.2-6" /><circle cx="17.5" cy="6.8" r="1.55" fill="currentColor" stroke="none" /></g>,
     records: <g><path d="M9.4 9.7 7.4 3.5M14.6 9.7 16.6 3.5" /><circle cx="12" cy="14.5" r="5.2" /><path d="M12 11.6l1 2 2.2.3-1.6 1.55.38 2.2L12 16.6l-1.98 1.05.38-2.2-1.6-1.55 2.2-.3z" /></g>,

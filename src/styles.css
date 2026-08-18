@@ -30,6 +30,9 @@ html, body {
   --warning: #FFD60A;
   --chart-grid: rgba(255, 255, 255, 0.07);
   --chart-muted: rgba(255, 255, 255, 0.22);
+  /* donut/series palette (slot 1 = --accent) */
+  --chart-2: #FF8A5C; --chart-3: #FFC15C; --chart-4: rgba(255, 255, 255, 0.22);
+  --chart-5: #8B93A1; --chart-6: #5C6470; --chart-7: #3E444E; --chart-8: #2C3138;
   --tabbar-bg: #131519;   /* opaco: el color que daba el blur al componer sobre el fondo */
   --tabbar-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   --sheet-bg: #1A1C21;
@@ -61,12 +64,89 @@ html, body {
   --warning: #B7791F; /* the dark-theme yellow is illegible on white */
   --chart-grid: rgba(20, 22, 26, 0.07);
   --chart-muted: rgba(20, 22, 26, 0.25);
+  --chart-4: rgba(20, 22, 26, 0.25);
   --tabbar-bg: #FFFFFF;
   --tabbar-shadow: 0 10px 30px rgba(20, 22, 26, 0.14);
   --sheet-bg: #FFFFFF;
   --input-bg: #F1F2F5;
   --shadow-card: 0 1px 2px rgba(20, 22, 26, 0.05), 0 8px 24px rgba(20, 22, 26, 0.05);
 }
+
+/* ---- Mono — the "special" accent (Settings → Appearance → Special).
+   It is not just another hue: it repaints the whole system in black & white, medals and
+   charts included, so nothing colored survives. Deeper blacks and flatter surfaces than
+   the default dark theme, matching the reference design. ---- */
+.gt-app.mono {
+  --bg: #08090A;
+  --bg-grad: radial-gradient(120% 80% at 50% -10%, #191B1F 0%, #08090A 62%);
+  --surface: rgba(255, 255, 255, 0.05);
+  --surface-solid: #141518;
+  --surface-2: rgba(255, 255, 255, 0.08);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.17);
+  --text: #F7F8FA;
+  --text-2: #9EA3AB;
+  --text-3: #61656D;
+  --accent: #F7F8FA;
+  --accent-press: #C6CBD3;
+  --on-accent: #0C0D0F;
+  --accent-soft: rgba(255, 255, 255, 0.12);
+  --success: #E7E9ED;
+  --success-soft: rgba(255, 255, 255, 0.10);
+  --warning: #B7BCC4;
+  --chart-grid: rgba(255, 255, 255, 0.06);
+  --chart-muted: rgba(255, 255, 255, 0.20);
+  --chart-2: #D2D6DC; --chart-3: #AEB3BB; --chart-4: rgba(255, 255, 255, 0.20);
+  --chart-5: #787D85; --chart-6: #5A5E65; --chart-7: #40444A; --chart-8: #2A2D32;
+  --tabbar-bg: #131417;
+  --tabbar-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --sheet-bg: #161719;
+  --input-bg: rgba(255, 255, 255, 0.06);
+  --bronze: #5F646C; --silver: #878D96; --gold: #C6CBD3; --platinum: #E2E5EA; --diamond: #FFFFFF;
+}
+/* flatter, squarer cards — the reference look, without the accent-tinted glass */
+.gt-app.mono .gt-card {
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.035) 55%, rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.gt-app.light.mono {
+  --bg: #FFFFFF;
+  --bg-grad: radial-gradient(120% 80% at 50% -10%, #FFFFFF 0%, #ECEDEF 70%);
+  --surface: #FFFFFF;
+  --surface-solid: #FFFFFF;
+  --surface-2: #EDEEF0;
+  --border: rgba(12, 13, 15, 0.10);
+  --border-strong: rgba(12, 13, 15, 0.20);
+  --text: #0C0D0F;
+  --text-2: #5A5E65;
+  --text-3: #9096A0;
+  --accent: #14161A;
+  --accent-press: #000000;
+  --on-accent: #FFFFFF;
+  --accent-soft: rgba(12, 13, 15, 0.09);
+  --success: #14161A;
+  --success-soft: rgba(12, 13, 15, 0.08);
+  --warning: #5A5E65;
+  --chart-grid: rgba(12, 13, 15, 0.08);
+  --chart-muted: rgba(12, 13, 15, 0.22);
+  --chart-2: #4A4E55; --chart-3: #6E737B; --chart-4: rgba(12, 13, 15, 0.22);
+  --chart-5: #9096A0; --chart-6: #B4B9C1; --chart-7: #D2D6DC; --chart-8: #E7E9ED;
+  --tabbar-bg: #FFFFFF;
+  --sheet-bg: #FFFFFF;
+  --input-bg: #F0F1F3;
+  --bronze: #B4B9C1; --silver: #9096A0; --gold: #5A5E65; --platinum: #35383D; --diamond: #0C0D0F;
+}
+.gt-app.light.mono .gt-card {
+  background: #FFFFFF;
+  border: 1px solid rgba(12, 13, 15, 0.09);
+  box-shadow: 0 6px 22px rgba(12, 13, 15, 0.06);
+}
+/* the primary button is a solid black/white slab here, not a translucent tint */
+.gt-app.mono .gt-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.gt-app.mono .gt-btn-primary:active { background: var(--accent-press); }
 
 /* ---- Type scale ---- */
 .gt-num { font-family: 'Oswald', sans-serif; font-weight: 600; letter-spacing: 0.01em; font-variant-numeric: tabular-nums; }

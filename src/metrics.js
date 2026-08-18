@@ -1,5 +1,5 @@
 // GymTrack — derived metrics. All math runs on set.realKg (true load), never the raw value.
-import { VARIANT_KEYS, est1RM, setTonnage } from './calc.js';
+import { VARIANT_KEYS, est1RM, setTonnage, isoDate, parseISO, addDays } from './calc.js';
 
 /** Build a cycle/variant view of a period: logs[cycle][variant] =
  *  { finished, workoutId, block, variant, date, exercises: [{ id, name, sets: [...] }] }.
@@ -213,6 +213,73 @@ export function exerciseSeries(logs, exId) {
     if (best != null) out.push({ cycle: c, kg: +best.toFixed(1) });
   }
   return out;
+}
+
+/* ---------------- Home screen helpers ---------------- */
+
+/** Per-session best working weight for an exercise, across ALL periods: [{ date, kg }]
+ *  ascending. `limit` keeps only the last N points (0 = all) — the Home chart shows a
+ *  handful, and unlike exerciseSeries() it survives starting a new mesocycle. */
+export function exerciseHistory(workouts, setsByWorkout, exId, limit = 8) {
+  const byDate = {};
+  for (const w of workouts) {
+    for (const s of setsByWorkout[w.id] || []) {
+      if (s.exerciseId !== exId) continue;
+      if (byDate[w.date] == null || s.realKg > byDate[w.date]) byDate[w.date] = s.realKg;
+    }
+  }
+  const out = Object.keys(byDate).sort().map((date) => ({ date, kg: +byDate[date].toFixed(1) }));
+  return limit ? out.slice(-limit) : out;
+}
+
+/** FNV-1a — a stable 32-bit hash so "random" picks stay the same all day and change tomorrow. */
+export function hashSeed(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+
+/** Deterministic pick from a list: same seed → same item (no Math.random, so a re-render
+ *  never reshuffles the widget). */
+export function pickDaily(list, seed) {
+  if (!list || !list.length) return null;
+  return list[hashSeed(String(seed)) % list.length];
+}
+
+/** ISO dates with at least one finished session, ascending. Counts every period. */
+export function trainedDates(workouts) {
+  const s = new Set();
+  for (const w of workouts) if (w.finished) s.add(w.date);
+  return [...s].sort();
+}
+
+/** Streak over trained days. The current run is anchored on today, or on yesterday when
+ *  today hasn't been trained yet — otherwise the streak would read 0 all morning. */
+export function streakInfo(dates, today = isoDate()) {
+  const set = new Set(dates);
+  const prev = (d) => isoDate(addDays(parseISO(d), -1));
+  let current = 0;
+  let cursor = set.has(today) ? today : (set.has(prev(today)) ? prev(today) : null);
+  while (cursor && set.has(cursor)) { current++; cursor = prev(cursor); }
+  const sorted = [...set].sort();
+  let best = 0, run = 0, last = null;
+  for (const d of sorted) {
+    run = last && prev(d) === last ? run + 1 : 1;
+    if (run > best) best = run;
+    last = d;
+  }
+  return { current, best, total: sorted.length, trainedToday: set.has(today), lastDate: sorted[sorted.length - 1] || null };
+}
+
+/** True when every exercise of the plan already has `min` sets logged — the cue to close
+ *  the session on its own (Esteban kept forgetting the Finish button). */
+export function shouldAutoFinish(workout, sets, min = 2) {
+  if (!workout || workout.finished) return false;
+  const entries = workout.entries || [];
+  if (!entries.length) return false;
+  const count = {};
+  for (const s of sets || []) count[s.exerciseId] = (count[s.exerciseId] || 0) + 1;
+  return entries.every((en) => (count[en.exerciseId] || 0) >= min);
 }
 
 /** Per-cycle best est-1RM series for an exercise. */

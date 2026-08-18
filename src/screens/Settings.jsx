@@ -1,6 +1,6 @@
 // GymTrack — Settings: mesocycle, profile, rotation editor, medal thresholds, units, backup, theme.
 import React, { useRef, useState } from 'react';
-import { useStore } from '../store.js';
+import { useStore, AUTO_FINISH_MIN_SETS } from '../store.js';
 import { MUSCLES } from '../db.js';
 import { MEDALS, fmtDate } from '../calc.js';
 import { exportJSON, exportXLSX, importJSON, importXLSX } from '../backup.js';
@@ -37,6 +37,8 @@ export default function SettingsScreen() {
   const [importMsg, setImportMsg] = useState(null);
   const fileRef = useRef(null);
 
+  const mono = profile.accent === 'mono';
+  const autoFinish = profile.autoFinish !== false;   // opt-out, on by default
   const vmap = Object.fromEntries(variants.map((v) => [v.code, v]));
   const variant = vmap[routineVar] || variants[0] || { code: routineVar, name: '—', exerciseIds: [] };
   const exMap = Object.fromEntries(exercises.map((e) => [e.id, e]));
@@ -128,11 +130,35 @@ export default function SettingsScreen() {
         <div className="gt-micro" style={{ margin: '14px 0 10px 2px' }}>ACCENT COLOR</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 9 }}>
           {ACCENTS.map((c) => {
-            const on = (profile.accent || ACCENTS[0]).toLowerCase() === c.toLowerCase();
+            const on = !mono && (profile.accent || ACCENTS[0]).toLowerCase() === c.toLowerCase();
             return <button key={c} title={c} aria-label={'accent ' + c} onClick={() => store.updateProfile({ accent: c })}
               style={{ width: '100%', aspectRatio: '1', borderRadius: 999, cursor: 'pointer', padding: 0, background: c, border: '3px solid ' + (on ? 'var(--text)' : 'transparent'), WebkitTapHighlightColor: 'transparent' }} />;
           })}
         </div>
+        {/* Mono isn't a hue — it repaints the whole app (medals and charts included) in
+            black & white, so it gets its own slot instead of a 17th dot. */}
+        <div className="gt-micro" style={{ margin: '18px 0 10px 2px' }}>SPECIAL</div>
+        <button aria-label="accent mono" onClick={() => store.updateProfile({ accent: mono ? ACCENTS[0] : 'mono' })}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '11px 13px', borderRadius: 16, cursor: 'pointer', font: 'inherit', color: 'inherit', textAlign: 'left', background: mono ? 'var(--accent-soft)' : 'var(--input-bg)', border: '1px solid ' + (mono ? 'var(--accent)' : 'var(--border)'), WebkitTapHighlightColor: 'transparent' }}>
+          <span style={{ width: 30, height: 30, borderRadius: 999, flexShrink: 0, background: 'linear-gradient(135deg, #FFFFFF 0 50%, #101114 50% 100%)', border: '2px solid ' + (mono ? 'var(--text)' : 'var(--border-strong)') }} />
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span className="gt-body" style={{ fontWeight: 800, display: 'block' }}>Mono</span>
+            <span className="gt-micro">Full black &amp; white system — no color anywhere</span>
+          </span>
+          {mono ? <GIcon name="check" size={17} style={{ color: 'var(--accent)' }} /> : null}
+        </button>
+      </div>
+
+      <SectionHead>Training</SectionHead>
+      <div className="gt-card" style={{ padding: '4px 16px' }}>
+        <SettingRow label="Auto-finish" sub={'Closes the session once every exercise has ' + AUTO_FINISH_MIN_SETS + '+ sets'} right={
+          <div style={{ display: 'flex', gap: 5 }}>
+            {[['on', true], ['off', false]].map(([l, v]) => (
+              <button key={l} className={'gt-chip' + (autoFinish === v ? ' on' : '')} aria-label={'auto-finish ' + l}
+                onClick={() => store.updateProfile({ autoFinish: v })}>{l}</button>
+            ))}
+          </div>
+        } />
       </div>
 
       <SectionHead>Routine · rotation</SectionHead>

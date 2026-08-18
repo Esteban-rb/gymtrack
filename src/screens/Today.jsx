@@ -165,7 +165,12 @@ function FinishOverlay({ summary, onClose }) {
           <GIcon name="check" size={42} stroke={2.6} />
         </div>
         <div className="gt-display" style={{ marginTop: 22, fontSize: 34 }}>WORKOUT CRUSHED</div>
-        <div className="gt-sub" style={{ marginTop: 8, maxWidth: 240, lineHeight: 1.5 }}>That's {summary.workoutNum} workouts this mesocycle. Keep stacking wins.</div>
+        {summary.auto && (
+          <div className="gt-chip on" style={{ marginTop: 10, cursor: 'default' }}>Auto-finished · 2+ sets everywhere</div>
+        )}
+        <div className="gt-sub" style={{ marginTop: 8, maxWidth: 240, lineHeight: 1.5 }}>
+          That's {summary.workoutNum} workouts this mesocycle. {summary.auto ? 'Add more sets any time — the session stays editable.' : 'Keep stacking wins.'}
+        </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 28, width: '100%', maxWidth: 320 }}>
           {[['Sets', summary.sets], ['Volume', (summary.volume / 1000).toFixed(1) + 't'], ['New PRs', summary.prs.length]].map(([l, v]) => (
             <div key={l} className="gt-card" style={{ flex: 1, padding: '14px 8px' }}>
@@ -262,6 +267,10 @@ export default function TodayScreen() {
     haptic();
     setJustLogged(i);
     setTimeout(() => setJustLogged(null), 650);
+    // every exercise at 2+ sets closes the session on its own (Settings → Auto-finish).
+    // Sets can still be added afterwards; the session just stops waiting for the button.
+    const auto = await store.autoFinishIfComplete(w.id);
+    if (auto) { setCelebrate(auto); haptic(); }
   };
 
   const finish = async () => {

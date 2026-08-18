@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useStore } from './store.js';
 import { MEDALS } from './calc.js';
 import { TabBar, TABS, MedalBadge, MEDAL_COLORS, PeriodFinishOverlay } from './components.jsx';
+import HomeScreen from './screens/Home.jsx';
 import TodayScreen from './screens/Today.jsx';
 import MetricsScreen from './screens/Metrics.jsx';
 import RecordsScreen from './screens/Records.jsx';
@@ -33,25 +34,28 @@ function MedalToast() {
 export default function App() {
   const store = useStore();
   const [tab, setTab] = useState(() => {
-    // fall back to 'today' if the stored tab no longer exists (e.g. the removed History tab)
+    // fall back to 'home' if the stored tab no longer exists (e.g. the removed History tab)
     try {
       const t = localStorage.getItem('gymtrack_tab');
-      return TABS.some((x) => x.id === t) ? t : 'today';
-    } catch { return 'today'; }
+      return TABS.some((x) => x.id === t) ? t : 'home';
+    } catch { return 'home'; }
   });
   useEffect(() => { store.init(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { try { localStorage.setItem('gymtrack_tab', tab); } catch { /* private mode */ } }, [tab]);
 
   const dark = store.profile?.theme !== 'light';
+  // 'mono' is not a hue but a whole black & white system → a class, not --accent vars
+  const mono = store.profile?.accent === 'mono';
   useEffect(() => {
+    const page = mono ? (dark ? '#08090A' : '#FFFFFF') : (dark ? '#0B0C0E' : '#F1F2F5');
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', dark ? '#0B0C0E' : '#F1F2F5');
+    if (meta) meta.setAttribute('content', page);
     // keep the browser's own rendering in sync with the in-app theme: native controls
     // (select popups, keyboard), overscroll areas, and Android Chrome's auto-dark heuristic
     document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
-    document.documentElement.style.background = dark ? '#0B0C0E' : '#F1F2F5';
-    document.body.style.background = dark ? '#0B0C0E' : '#F1F2F5';
-  }, [dark]);
+    document.documentElement.style.background = page;
+    document.body.style.background = page;
+  }, [dark, mono]);
 
   // custom accent (Settings → Appearance) overrides the theme's default red;
   // bright accents flip the on-accent text to dark so buttons stay readable
@@ -73,8 +77,9 @@ export default function App() {
   }
 
   return (
-    <div className={'gt-app' + (dark ? '' : ' light')} style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', ...accentVars }}>
+    <div className={'gt-app' + (dark ? '' : ' light') + (mono ? ' mono' : '')} style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', ...accentVars }}>
       <div style={{ flex: 1, minHeight: 0, position: 'relative', maxWidth: 520, width: '100%', margin: '0 auto', paddingTop: 'env(safe-area-inset-top)' }}>
+        {tab === 'home' && <HomeScreen onNavigate={setTab} />}
         {tab === 'today' && <TodayScreen />}
         {tab === 'metrics' && <MetricsScreen />}
         {tab === 'records' && <RecordsScreen />}

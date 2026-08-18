@@ -5,8 +5,9 @@ import React from 'react';
 import { MEDALS } from './calc.js';
 import { MedalBadge } from './components.jsx';
 
-// Solid hexes (not CSS vars) so shapes can carry their own opacity reliably.
-export const MEDAL_HEX = ['#CD8A52', '#C2CBD6', '#F5C242', '#AFE6DC', '#6FD2FF'];
+// Tier vars, not literal hexes: the shapes carry their opacity in the `opacity` attribute,
+// so a theme (e.g. the Mono accent) can restyle the whole map by redefining the tokens.
+export const MEDAL_HEX = ['var(--bronze)', 'var(--silver)', 'var(--gold)', 'var(--platinum)', 'var(--diamond)'];
 
 /* Every shape below is the LEFT half of a symmetric figure on a 160×345 canvas
  * (center line x=80); the component renders each twice, mirrored. */
