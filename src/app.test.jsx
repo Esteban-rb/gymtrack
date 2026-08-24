@@ -7,6 +7,7 @@ import { describe, it, expect, beforeAll, vi } from 'vitest';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
+import { LineChart } from './components.jsx';
 import { useStore } from './store.js';
 
 // jsdom has no canvas: give Confetti a no-op 2D context
@@ -147,6 +148,19 @@ describe('app boots and core flows work', () => {
     await act(() => useStore.getState().updateProfile({ autoFinish: true }));
   });
 
+  it('the record widget opens that exercise chart in Metrics', async () => {
+    click('[aria-label="Home"]');
+    await waitFor(() => text().includes('Workouts'), 'Home screen');
+    const widget = document.querySelector('[aria-label="open exercise metrics"]');
+    expect(widget).toBeTruthy();
+    const name = widget.querySelector('.gt-h2').textContent;
+
+    click('[aria-label="open exercise metrics"]');
+    await waitFor(() => text().includes('Muscle progress'), 'Metrics muscle cards');
+    // the muscle card that owns the PR opened and the exercise chart is already expanded
+    await waitFor(() => document.querySelector(`[aria-label="${name} chart"]`), name + ' chart expanded');
+  });
+
   it('the Mono accent repaints the app in black & white', async () => {
     await act(() => useStore.getState().updateProfile({ accent: 'mono' }));
     expect(document.querySelector('.gt-app.mono')).toBeTruthy();
@@ -156,5 +170,30 @@ describe('app boots and core flows work', () => {
     await act(() => useStore.getState().updateProfile({ accent: '#0A84FF' }));
     expect(document.querySelector('.gt-app.mono')).toBeNull();
     expect(document.querySelector('.gt-app').style.getPropertyValue('--accent')).toBe('#0A84FF');
+  });
+});
+
+describe('LineChart x labels', () => {
+  const render = async (data) => {
+    const host = document.body.appendChild(document.createElement('div'));
+    await act(async () => {
+      createRoot(host).render(
+        <LineChart data={data} valueKey="kg" labelKey="label" fmtLabel={(l) => l} fmtVal={(v) => v} />
+      );
+    });
+    return [...host.querySelectorAll('text')].map((t) => t.textContent).filter((s) => s.includes('/'));
+  };
+  const series = (n) => Array.from({ length: n }, (_, i) => ({ label: '08/' + (i + 1), kg: 70 + (i % 4) }));
+
+  it('keeps every date when they fit', async () => {
+    expect(await render(series(5))).toEqual(['08/1', '08/2', '08/3', '08/4', '08/5']);
+  });
+
+  it('thins them out — evenly, most recent kept — when they do not', async () => {
+    const labels = await render(series(40));
+    expect(labels.length).toBeLessThanOrEqual(8);   // ~5 chars each in a 300-wide viewBox
+    expect(labels[labels.length - 1]).toBe('08/40');
+    const gaps = labels.map((l) => +l.slice(3)).map((v, i, a) => v - a[i - 1]).slice(1);
+    expect(new Set(gaps).size).toBe(1);
   });
 });

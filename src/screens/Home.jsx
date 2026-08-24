@@ -184,7 +184,9 @@ export default function HomeScreen({ onNavigate }) {
           </div>
         </Widget>
 
-        <Widget ariaLabel="open records" onClick={() => onNavigate('records')} style={{ minHeight: 168 }}>
+        {/* the PR opens that exercise's own chart in Metrics — Records is a step further away */}
+        <Widget ariaLabel={pr ? 'open exercise metrics' : 'open records'} icon={pr ? 'chart' : 'chevR'}
+          onClick={() => (pr ? onNavigate('metrics', prId) : onNavigate('records'))} style={{ minHeight: 168 }}>
           {pr ? (<>
             <div style={{ paddingTop: 6 }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, flexWrap: 'wrap' }}>

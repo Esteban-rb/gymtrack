@@ -40,6 +40,13 @@ export default function App() {
       return TABS.some((x) => x.id === t) ? t : 'home';
     } catch { return 'home'; }
   });
+  // Home can jump straight to one exercise's chart in Metrics. The counter makes the object
+  // identity change on every jump, so asking for the same exercise twice still re-focuses it.
+  const [metricsFocus, setMetricsFocus] = useState(null);
+  const navigate = (next, exerciseId) => {
+    if (exerciseId) setMetricsFocus((p) => ({ id: exerciseId, n: (p?.n || 0) + 1 }));
+    setTab(next);
+  };
   useEffect(() => { store.init(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { try { localStorage.setItem('gymtrack_tab', tab); } catch { /* private mode */ } }, [tab]);
 
@@ -79,9 +86,9 @@ export default function App() {
   return (
     <div className={'gt-app' + (dark ? '' : ' light') + (mono ? ' mono' : '')} style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', ...accentVars }}>
       <div style={{ flex: 1, minHeight: 0, position: 'relative', maxWidth: 520, width: '100%', margin: '0 auto', paddingTop: 'env(safe-area-inset-top)' }}>
-        {tab === 'home' && <HomeScreen onNavigate={setTab} />}
+        {tab === 'home' && <HomeScreen onNavigate={navigate} />}
         {tab === 'today' && <TodayScreen />}
-        {tab === 'metrics' && <MetricsScreen />}
+        {tab === 'metrics' && <MetricsScreen focus={metricsFocus} />}
         {tab === 'records' && <RecordsScreen />}
         {tab === 'settings' && <SettingsScreen />}
       </div>

@@ -1,7 +1,7 @@
 // GymTrack — Metrics dashboard, grouped by rotation cycle (all figures derived from realKg).
 // v2 design: area line charts (straight segments, no bars) + per-muscle progress accordions
 // with press-and-hold to blow up any exercise's chart.
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store.js';
 import { MUSCLES } from '../db.js';
 import * as M from '../metrics.js';
@@ -17,22 +17,33 @@ const deltaColor = (d) => (d >= 0 ? 'var(--success)' : 'var(--accent)');
 
 /* One exercise row inside a muscle card: sparkline + current + delta.
  * Press and hold anywhere on the row to expand the full chart (release to close). */
-function ExerciseTrendRow({ ex }) {
+function ExerciseTrendRow({ ex, focus }) {
   const [held, setHeld] = useState(false);
+  // arriving from the Home PR widget: the chart opens by itself and stays open until touched
+  const [pinned, setPinned] = useState(false);
   const timer = useRef(null);
+  const rowRef = useRef(null);
   const start = () => { clearTimeout(timer.current); timer.current = setTimeout(() => setHeld(true), 280); };
-  const end = () => { clearTimeout(timer.current); setHeld(false); };
+  const end = () => { clearTimeout(timer.current); setHeld(false); setPinned(false); };
+  useEffect(() => {
+    if (!focus) return;
+    setPinned(true);
+    // optional call: jsdom has no scrollIntoView, and the timer can outlive the test
+    const t = setTimeout(() => rowRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' }), 80);
+    return () => clearTimeout(t);
+  }, [focus]);
+  const open = held || pinned;
   const s = ex.series;
   const cur = s[s.length - 1].kg;
   const d = cur - s[0].kg;
   return (
-    <div
+    <div ref={rowRef}
       onPointerDown={start} onPointerUp={end} onPointerCancel={end} onPointerLeave={end}
       onContextMenu={(e) => e.preventDefault()}
       style={{ borderTop: '1px solid var(--border)', userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none', touchAction: held ? 'none' : 'pan-y' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="gt-body" style={{ fontWeight: 800, fontSize: 13 }}>{ex.name}</div>
+          <div className="gt-body" style={{ fontWeight: 800, fontSize: 13, color: pinned ? 'var(--accent)' : undefined }}>{ex.name}</div>
           <div className="gt-micro" style={{ marginTop: 1 }}>avg kg per rep</div>
         </div>
         <Sparkline data={s} />
@@ -41,8 +52,8 @@ function ExerciseTrendRow({ ex }) {
           <div className="gt-micro" style={{ fontWeight: 700, color: deltaColor(d) }}>{fmtDelta(d)}</div>
         </div>
       </div>
-      {held && (
-        <div style={{ paddingBottom: 10, animation: 'gt-pop 0.25s cubic-bezier(.2,1.2,.4,1)', transformOrigin: '50% 0' }}>
+      {open && (
+        <div aria-label={ex.name + ' chart'} style={{ paddingBottom: 10, animation: 'gt-pop 0.25s cubic-bezier(.2,1.2,.4,1)', transformOrigin: '50% 0' }}>
           <LineChart data={s} height={110} labelKey="cycle" fmtLabel={(l) => 'C' + l} fmtVal={(v) => v + ' kg'} />
         </div>
       )}
@@ -51,7 +62,7 @@ function ExerciseTrendRow({ ex }) {
 }
 
 /* Accordion card: muscle summary row, expands to trend chart + exercise rows. */
-function MuscleCard({ muscle, data, open, onToggle }) {
+function MuscleCard({ muscle, data, open, onToggle, focusExercise }) {
   const s = data.series;
   const cur = s[s.length - 1].kg;
   const d = cur - s[0].kg;
@@ -78,7 +89,9 @@ function MuscleCard({ muscle, data, open, onToggle }) {
           <div className="gt-num" style={{ fontSize: 34, lineHeight: 1, margin: '8px 0 2px' }}>{fmtDelta(d)}</div>
           <LineChart data={s} height={118} labelKey="cycle" fmtLabel={(l) => 'C' + l} fmtVal={(v) => v + ' kg'} />
           <div style={{ marginTop: 6 }}>
-            {data.exercises.map((e) => <ExerciseTrendRow key={e.id} ex={e} />)}
+            {data.exercises.map((e) => (
+              <ExerciseTrendRow key={e.id} ex={e} focus={focusExercise && focusExercise.id === e.id ? focusExercise.n : null} />
+            ))}
           </div>
         </div>
       )}
@@ -86,7 +99,7 @@ function MuscleCard({ muscle, data, open, onToggle }) {
   );
 }
 
-export default function MetricsScreen() {
+export default function MetricsScreen({ focus }) {
   const store = useStore();
   const { period, variants, workouts, setsByWorkout, exercises, bodyweight } = store;
   const exMap = useMemo(() => Object.fromEntries(exercises.map((e) => [e.id, e])), [exercises]);
@@ -123,6 +136,16 @@ export default function MetricsScreen() {
     return order.filter((m) => progress[m]).map((m) => ({ muscle: m, data: progress[m] }));
   }, [progress]);
   const effOpen = openMuscle === '__first' ? muscleList[0]?.muscle : openMuscle;
+
+  // Deep link from Home ({ id, n }): open the muscle that owns the exercise so its row —
+  // and its chart — is on screen. Ignored if the exercise has nothing logged this mesocycle.
+  const [focusEx, setFocusEx] = useState(null);
+  useEffect(() => {
+    const m = focus?.id ? exMap[focus.id]?.muscle : null;
+    if (!m || !progress[m]?.exercises.some((e) => e.id === focus.id)) return;
+    setOpenMuscle(m);
+    setFocusEx(focus);
+  }, [focus, exMap, progress]);
 
   const split = useMemo(() => M.muscleVolumeSplit(logs, exMap), [logs, exMap]);
   const cumTonnage = useMemo(() => { let t = 0; for (let c = 1; c <= cycle; c++) t += M.cycleVolume(logs, c); return t; }, [logs, cycle]);
@@ -229,7 +252,8 @@ export default function MetricsScreen() {
           <SectionHead>Muscle progress · avg kg per rep</SectionHead>
           {muscleList.map(({ muscle, data }) => (
             <MuscleCard key={muscle} muscle={muscle} data={data} open={effOpen === muscle}
-              onToggle={() => setOpenMuscle(effOpen === muscle ? null : muscle)} />
+              focusExercise={focusEx}
+              onToggle={() => { setFocusEx(null); setOpenMuscle(effOpen === muscle ? null : muscle); }} />
           ))}
         </>
       )}

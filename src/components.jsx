@@ -206,6 +206,14 @@ export function LineChart({ data, height = 120, valueKey = 'kg', labelKey = 'wee
   const pts = data.map((d, i) => x(i) + ',' + y(d[valueKey])).join(' ');
   const last = data.length - 1;
   const base = H - padY + 4;
+  // Long series (body weight, mostly) put more labels on the axis than fit and they pile up
+  // on top of each other. Keep only as many as the width allows, dropped from the end
+  // backwards so the most recent point always keeps its label.
+  const labels = data.map((d) => String(fmtLabel(d[labelKey])));
+  const slotW = Math.max(...labels.map((s) => s.length)) * 5.9 + 10;
+  const lblStep = Math.max(1, Math.ceil(data.length / Math.max(2, Math.floor((W - padX * 2) / slotW) + 1)));
+  const clampX = (v) => Math.min(W - slotW / 2, Math.max(slotW / 2, v));
+  const dotR = data.length > 18 ? 2 : 3.2;
   return (
     <svg viewBox={'0 0 ' + W + ' ' + (H + lblH)} style={{ width: '100%', display: 'block' }}>
       <defs>
@@ -219,8 +227,10 @@ export function LineChart({ data, height = 120, valueKey = 'kg', labelKey = 'wee
       <polyline points={pts} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
       {data.map((d, i) => (
         <g key={i}>
-          <circle cx={x(i)} cy={y(d[valueKey])} r={i === last ? 5 : 3.2} fill={i === last ? 'var(--accent)' : 'var(--surface-solid)'} stroke="var(--accent)" strokeWidth="2" />
-          <text x={x(i)} y={H + 12} textAnchor="middle" fontSize="10" fontWeight="600" fill="var(--text-3)" fontFamily="Manrope">{fmtLabel(d[labelKey])}</text>
+          <circle cx={x(i)} cy={y(d[valueKey])} r={i === last ? 5 : dotR} fill={i === last ? 'var(--accent)' : 'var(--surface-solid)'} stroke="var(--accent)" strokeWidth={i === last || dotR > 2 ? 2 : 1.5} />
+          {(last - i) % lblStep === 0 ? (
+            <text x={clampX(x(i))} y={H + 12} textAnchor="middle" fontSize="10" fontWeight="600" fill="var(--text-3)" fontFamily="Manrope">{labels[i]}</text>
+          ) : null}
         </g>
       ))}
       {/* clamped: when the last point is the maximum it sits at the top padding and the
