@@ -1,13 +1,18 @@
 // GymTrack — History: browse mesocycles → cycles → variants; open any session to view/edit sets.
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store.js';
-import { buildLogs, dayVolume, workoutsDone } from '../metrics.js';
+import { useShallow } from 'zustand/react/shallow';
+import { buildLogs, dayVolume, historySlots, workoutsDone } from '../metrics.js';
 import { fmtWeight, fmtDate } from '../calc.js';
-import { GIcon, Sheet, EmptyState } from '../components.jsx';
+import { GIcon, Sheet, EmptyState, UndoToast } from '../components.jsx';
 
 // Since v2 History lives inside Settings (full-screen sub-page) instead of a bottom tab.
 export default function HistoryScreen({ onBack }) {
-  const store = useStore();
+  const store = useStore(useShallow((state) => ({
+    period: state.period, allPeriods: state.allPeriods, variants: state.variants,
+    workouts: state.workouts, setsByWorkout: state.setsByWorkout, exercises: state.exercises,
+    deleteSet: state.deleteSet, restoreSet: state.restoreSet,
+  })));
   const { period, allPeriods, variants, workouts, setsByWorkout, exercises } = store;
   const exMap = useMemo(() => Object.fromEntries(exercises.map((e) => [e.id, e])), [exercises]);
 
@@ -31,6 +36,9 @@ export default function HistoryScreen({ onBack }) {
   const cc = selPeriod ? (isActive ? (selPeriod.cycle ?? maxCycle) : maxCycle) : 1;
   const [cy, setCy] = useState(() => (isActive && cc - 1 >= 1 ? cc - 1 : isActive ? cc : 1));
   const [openVar, setOpenVar] = useState(null);
+  const [undoSet, setUndoSet] = useState(null);
+  const undoTimerRef = useRef(null);
+  useEffect(() => () => clearTimeout(undoTimerRef.current), []);
 
   const cycles = [];
   for (let c = 1; c <= cc; c++) cycles.push(c);
@@ -40,17 +48,27 @@ export default function HistoryScreen({ onBack }) {
 
   // slots to render for the selected cycle: the rotation variants (active period) or
   // whatever keys the cycle actually has (legacy / archived data).
-  const slots = isActive && variants.length
-    ? variants.map((v) => ({ key: v.code, name: v.name }))
-    : Object.keys(cyLogs).map((k) => ({ key: k, name: (cyLogs[k].block || k) }));
+  const slots = historySlots(cyLogs, variants, isActive);
 
-  const deleteSet = async (s) => { await store.deleteSet(s.id, s.workoutId); };
+  const deleteSet = async (s) => {
+    const deleted = await store.deleteSet(s.id, s.workoutId);
+    if (!deleted) return;
+    clearTimeout(undoTimerRef.current);
+    setUndoSet(deleted);
+    undoTimerRef.current = setTimeout(() => setUndoSet(null), 6000);
+  };
+  const undoDelete = async () => {
+    if (!undoSet) return;
+    clearTimeout(undoTimerRef.current);
+    await store.restoreSet(undoSet);
+    setUndoSet(null);
+  };
 
   return (
     <div className="gt-scroll" style={{ height: '100%', padding: '18px 16px 150px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
         {onBack ? <button className="gt-iconbtn" style={{ width: 38, height: 38, minWidth: 38 }} onClick={onBack} aria-label="back to settings"><GIcon name="chevL" size={17} /></button> : null}
-        <div className="gt-h1">History</div>
+        <h1 className="gt-h1">History</h1>
       </div>
       <div className="gt-sub">{selPeriod ? (isActive ? 'Current mesocycle · started ' + fmtDate(selPeriod.startDate) : 'Archived · ' + fmtDate(selPeriod.startDate)) : 'No mesocycles yet'}</div>
 
@@ -77,15 +95,15 @@ export default function HistoryScreen({ onBack }) {
           ))}
         </div>
 
-        {slots.map(({ key, name }) => {
+        {slots.map(({ key, code, name }) => {
           const e = cyLogs[key];
           const sets = e ? e.exercises.reduce((a, x) => a + x.sets.length, 0) : 0;
           return (
             <button key={key} className="gt-card" disabled={!e} onClick={() => e && setOpenVar(key)} style={{ width: '100%', padding: '14px 16px', marginBottom: 9, display: 'flex', alignItems: 'center', gap: 13, font: 'inherit', color: 'inherit', textAlign: 'left', cursor: e ? 'pointer' : 'default', opacity: e ? 1 : 0.45, WebkitTapHighlightColor: 'transparent' }}>
-              <div className="gt-num" style={{ fontSize: 15, width: 38, color: 'var(--text-2)' }}>{key}</div>
+              <div className="gt-num" style={{ fontSize: 15, width: 38, color: 'var(--text-2)' }}>{code}</div>
               <div style={{ flex: 1 }}>
                 <div className="gt-body" style={{ fontWeight: 800 }}>{e ? e.block : name}</div>
-                <div className="gt-micro" style={{ marginTop: 2 }}>{e ? sets + ' sets · ' + (dayVolume(e) / 1000).toFixed(1) + ' t' : (isActive && cy === cc ? 'Not yet' : 'Skipped')}</div>
+                <div className="gt-micro" style={{ marginTop: 2 }}>{e ? fmtDate(e.date) + ' · ' + sets + ' sets · ' + (dayVolume(e) / 1000).toFixed(1) + ' t' : (isActive && cy === cc ? 'Not yet' : 'Skipped')}</div>
               </div>
               {e && e.finished ? <div style={{ color: 'var(--success)' }}><GIcon name="check" size={18} stroke={2.4} /></div> : null}
               {e ? <div style={{ color: 'var(--text-3)' }}><GIcon name="chevR" size={16} /></div> : null}
@@ -94,7 +112,7 @@ export default function HistoryScreen({ onBack }) {
         })}
       </>)}
 
-      <Sheet open={!!entry} onClose={() => setOpenVar(null)} title={entry ? 'Cycle ' + cy + ' · ' + openVar + ' · ' + entry.block : ''}>
+      <Sheet open={!!entry} onClose={() => setOpenVar(null)} title={entry ? 'Cycle ' + cy + ' · ' + entry.variant + ' · ' + entry.block : ''}>
         {entry && <div className="gt-micro" style={{ marginBottom: 10 }}>{fmtDate(entry.date)} · deleting a set updates all metrics and records</div>}
         {entry && entry.exercises.map((ex, i) => (
           <div key={ex.id + i} style={{ marginBottom: 14 }}>
@@ -111,7 +129,9 @@ export default function HistoryScreen({ onBack }) {
             ))}
           </div>
         ))}
+        <UndoToast message={undoSet ? 'Set deleted' : ''} onUndo={undoDelete} />
       </Sheet>
+      {!entry && <UndoToast message={undoSet ? 'Set deleted' : ''} onUndo={undoDelete} />}
     </div>
   );
 }

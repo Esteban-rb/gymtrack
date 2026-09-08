@@ -6,7 +6,7 @@ import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeAll } from 'vitest';
 import { useStore } from './store.js';
 import { db } from './db.js';
-import { cycleRange } from './screens/Today.jsx';
+import { availableSwapExercises, cycleRange } from './screens/Today.jsx';
 
 const store = () => useStore.getState();
 
@@ -138,5 +138,111 @@ describe('walking back to a session already trained', () => {
 
     await store().setActiveVariant('L1');                    // y volver a la de hoy la recupera
     expect(store().sessionInView().id).toBe(todayW.id);
+  });
+});
+
+describe('workout exercise swaps', () => {
+  it('does not offer exercises already used by another entry', () => {
+    const exercises = [{ id: 'bench', name: 'Bench' }, { id: 'row', name: 'Row' }, { id: 'press', name: 'Press' }];
+    const entries = [{ exerciseId: 'bench' }, { exerciseId: 'row' }];
+
+    expect(availableSwapExercises(exercises, entries, 0, '').map((exercise) => exercise.id)).toEqual(['bench', 'press']);
+  });
+
+  it('rejects swapping to an exercise already present in the session', async () => {
+    const w = await store().createWorkout('U1');
+    const original = w.entries.map((entry) => entry.exerciseId);
+
+    const changed = await store().swapEntry(w.id, 0, original[1]);
+
+    expect(changed).toBe(false);
+    expect(store().workouts.find((item) => item.id === w.id).entries.map((entry) => entry.exerciseId)).toEqual(original);
+  });
+});
+
+describe('set deletion undo', () => {
+  it('restores a deleted set with its original order', async () => {
+    const w = await store().createWorkout('U2');
+    const exerciseId = w.entries[0].exerciseId;
+    await store().logSet(w.id, exerciseId, { value: 40, reps: 10, unit: 'kg' });
+    await store().logSet(w.id, exerciseId, { value: 45, reps: 8, unit: 'kg' });
+    const original = [...store().setsByWorkout[w.id]].sort((a, b) => a.n - b.n);
+
+    const deleted = await store().deleteSet(original[0].id, w.id);
+    expect(deleted).toMatchObject({ id: original[0].id, n: 1 });
+    expect(store().setsByWorkout[w.id][0].n).toBe(1);
+
+    await store().restoreSet(deleted);
+    expect([...store().setsByWorkout[w.id]].sort((a, b) => a.n - b.n).map((setRow) => [setRow.id, setRow.n]))
+      .toEqual(original.map((setRow) => [setRow.id, setRow.n]));
+  });
+
+  it('serializes restore and log mutations so memory matches IndexedDB', async () => {
+    if (!store().loaded) await store().init();
+    const w = await store().createWorkout('U2');
+    const exerciseId = w.entries[0].exerciseId;
+    await store().logSet(w.id, exerciseId, { value: 40, reps: 10, unit: 'kg' });
+    await store().logSet(w.id, exerciseId, { value: 45, reps: 8, unit: 'kg' });
+    const deleted = await store().deleteSet(store().setsByWorkout[w.id][0].id, w.id);
+
+    await Promise.all([
+      store().restoreSet(deleted),
+      store().logSet(w.id, exerciseId, { value: 50, reps: 6, unit: 'kg' }),
+    ]);
+
+    const fromState = [...store().setsByWorkout[w.id]].sort((a, b) => a.n - b.n).map(({ id, n }) => [id, n]);
+    const fromDb = (await db.sets.where('workoutId').equals(w.id).sortBy('n')).map(({ id, n }) => [id, n]);
+    expect(fromState).toEqual(fromDb);
+    expect(fromState.map(([, n]) => n)).toEqual([1, 2, 3]);
+  });
+
+  it('serializes set edits with back-off toggles', async () => {
+    if (!store().loaded) await store().init();
+    const w = await store().createWorkout('U2');
+    const exerciseId = w.entries[0].exerciseId;
+    await store().logSet(w.id, exerciseId, { value: 40, reps: 10, unit: 'kg' });
+    await store().logSet(w.id, exerciseId, { value: 35, reps: 10, unit: 'kg' });
+    const target = store().setsByWorkout[w.id][1];
+
+    await Promise.all([
+      store().editSet(target.id, w.id, { value: 37.5, reps: 8, unit: 'kg' }),
+      store().toggleBackoff(target.id, w.id),
+    ]);
+
+    const fromState = store().setsByWorkout[w.id].find((row) => row.id === target.id);
+    const fromDb = await db.sets.get(target.id);
+    expect(fromState).toMatchObject({ value: 37.5, reps: 8, backoffForce: false });
+    expect(fromDb).toMatchObject({ value: 37.5, reps: 8, backoffForce: false });
+  });
+
+  it('keeps concurrent logs for different workouts in Zustand and IndexedDB', async () => {
+    if (!store().loaded) await store().init();
+    const first = await store().createWorkout('U1');
+    const second = await store().createWorkout('L1');
+
+    await Promise.all([
+      store().logSet(first.id, first.entries[0].exerciseId, { value: 50, reps: 8, unit: 'kg' }),
+      store().logSet(second.id, second.entries[0].exerciseId, { value: 60, reps: 10, unit: 'kg' }),
+    ]);
+
+    const stateCounts = [first.id, second.id].map((id) => store().setsByWorkout[id]?.length || 0);
+    const dbCounts = await Promise.all([first.id, second.id].map((id) => db.sets.where('workoutId').equals(id).count()));
+    expect(stateCounts).toEqual(dbCounts);
+    expect(stateCounts).toEqual([1, 1]);
+  });
+
+  it('keeps concurrent personal-record refreshes for different exercises', async () => {
+    if (!store().loaded) await store().init();
+    const workout = await store().createWorkout('U1');
+    const exerciseIds = workout.entries.slice(0, 2).map((entry) => entry.exerciseId);
+    await store().logSet(workout.id, exerciseIds[0], { value: 50, reps: 8, unit: 'kg' });
+    await store().logSet(workout.id, exerciseIds[1], { value: 60, reps: 10, unit: 'kg' });
+    useStore.setState({ prs: {} });
+
+    await Promise.all(exerciseIds.map((exerciseId) => store().refreshPR(exerciseId)));
+
+    const dbPrs = await Promise.all(exerciseIds.map((exerciseId) => db.personalRecords.get(exerciseId)));
+    expect(exerciseIds.map((exerciseId) => store().prs[exerciseId])).toEqual(dbPrs);
+    expect(Object.keys(store().prs).sort()).toEqual([...exerciseIds].sort());
   });
 });

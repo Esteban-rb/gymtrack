@@ -110,7 +110,7 @@ describe('app boots and core flows work', () => {
     expect(text()).toContain('Last 12 weeks');
     // one finished session, today → a 1-day streak
     expect(text()).toContain('today is already logged');
-    click('[aria-label="close"]');
+    click('[aria-label="close Streak"]');
     await waitFor(() => !text().includes('Last 12 weeks'), 'streak sheet closes');
 
     // the settings button on the header jumps to the Settings tab

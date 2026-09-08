@@ -1,6 +1,7 @@
 // GymTrack — app shell: bootstrap, theme + accent, tab navigation, medal-unlock toast.
 import React, { useEffect, useMemo, useState } from 'react';
 import { useStore } from './store.js';
+import { useShallow } from 'zustand/react/shallow';
 import { MEDALS } from './calc.js';
 import { TabBar, TABS, MedalBadge, MEDAL_COLORS, PeriodFinishOverlay } from './components.jsx';
 import HomeScreen from './screens/Home.jsx';
@@ -10,7 +11,7 @@ import RecordsScreen from './screens/Records.jsx';
 import SettingsScreen from './screens/Settings.jsx';
 
 function MedalToast() {
-  const { medalUnlock, dismissMedal } = useStore();
+  const { medalUnlock, dismissMedal } = useStore(useShallow((state) => ({ medalUnlock: state.medalUnlock, dismissMedal: state.dismissMedal })));
   useEffect(() => {
     if (!medalUnlock) return;
     try { navigator.vibrate && navigator.vibrate([14, 60, 20]); } catch { /* unsupported */ }
@@ -32,7 +33,13 @@ function MedalToast() {
 }
 
 export default function App() {
-  const store = useStore();
+  const store = useStore(useShallow((state) => ({
+    loaded: state.loaded,
+    profile: state.profile,
+    init: state.init,
+    periodCelebration: state.periodCelebration,
+    dismissPeriodCelebration: state.dismissPeriodCelebration,
+  })));
   const [tab, setTab] = useState(() => {
     // fall back to 'home' if the stored tab no longer exists (e.g. the removed History tab)
     try {
@@ -80,7 +87,14 @@ export default function App() {
   }, [accent]);
 
   if (!store.loaded) {
-    return <div className="gt-app" style={{ position: 'fixed', inset: 0 }} />;
+    return (
+      <div className="gt-app" role="status" aria-live="polite" style={{ position: 'fixed', inset: 0, display: 'grid', placeItems: 'center' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div className="gt-display" style={{ fontSize: 28 }}>GYMTRACK</div>
+          <div className="gt-micro" style={{ marginTop: 8 }}>Loading your training data…</div>
+        </div>
+      </div>
+    );
   }
 
   return (

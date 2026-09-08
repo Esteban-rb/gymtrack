@@ -3,6 +3,7 @@
 // the date + the variant on deck, so a widget stays put all day and rotates tomorrow.
 import React, { useMemo, useState } from 'react';
 import { useStore } from '../store.js';
+import { useShallow } from 'zustand/react/shallow';
 import { exerciseHistory, pickDaily, streakInfo, trainedDates } from '../metrics.js';
 import { fmtDate, isoDate, parseISO, addDays, mondayOf, splitUnit } from '../calc.js';
 import { GIcon, RingProgress, LineChart, Sheet, EmptyState } from '../components.jsx';
@@ -100,7 +101,12 @@ function StreakSheet({ open, onClose, dates }) {
 
 /* ---------- Home ---------- */
 export default function HomeScreen({ onNavigate }) {
-  const store = useStore();
+  const store = useStore(useShallow((state) => ({
+    period: state.period, variants: state.variants, workouts: state.workouts,
+    setsByWorkout: state.setsByWorkout, exercises: state.exercises, prs: state.prs,
+    sessionInView: state.sessionInView, currentVariant: state.currentVariant,
+    variantMap: state.variantMap, cycleDone: state.cycleDone, archiveAndStartNew: state.archiveAndStartNew,
+  })));
   const { period, variants, workouts, setsByWorkout, exercises, prs } = store;
   const [streakOpen, setStreakOpen] = useState(false);
 
@@ -155,7 +161,7 @@ export default function HomeScreen({ onNavigate }) {
       {/* Header: title + settings / streak */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 18 }}>
         <div style={{ minWidth: 0 }}>
-          <div className="gt-h1" style={{ fontSize: 30 }}>Workouts</div>
+          <h1 className="gt-h1" style={{ fontSize: 30 }}>Workouts</h1>
           <div className="gt-sub" style={{ marginTop: 2 }}>{parseISO(isoDate()).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
