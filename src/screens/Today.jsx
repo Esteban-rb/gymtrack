@@ -1,9 +1,10 @@
 // GymTrack — Today: rotation-driven session plan, quick set logging, back-off tags, finish celebration.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store.js';
-import { buildLogs, dayVolume, lastSetsGlobal } from '../metrics.js';
+import { useShallow } from 'zustand/react/shallow';
+import { lastSetsBeforeByExercise } from '../metrics.js';
 import { fmtWeight, suggestOverload, splitUnit, isoDate, fmtDate } from '../calc.js';
-import { GIcon, Stepper, UnitChips, Sheet, Confetti, EmptyState } from '../components.jsx';
+import { GIcon, Stepper, UnitChips, Sheet, Confetti, EmptyState, UndoToast, useModalFocus } from '../components.jsx';
 
 const haptic = () => { try { navigator.vibrate && navigator.vibrate(12); } catch { /* unsupported */ } };
 
@@ -14,6 +15,14 @@ const haptic = () => { try { navigator.vibrate && navigator.vibrate(12); } catch
 export function cycleRange(cycleGoal, current, loggedCycles = []) {
   const top = Math.max(cycleGoal || 6, current || 1, ...loggedCycles, 1);
   return Array.from({ length: top }, (_, i) => i + 1);
+}
+
+export function availableSwapExercises(exercises, entries, swapIndex, query) {
+  const usedElsewhere = new Set(entries.filter((_, index) => index !== swapIndex).map((entry) => entry.exerciseId));
+  const needle = query.trim().toLowerCase();
+  return exercises.filter((exercise) => exercise.active !== false
+    && !usedElsewhere.has(exercise.id)
+    && exercise.name.toLowerCase().includes(needle));
 }
 
 /* Effective back-off state of a set: auto = realKg dropped below the exercise's first set,
@@ -38,13 +47,14 @@ function LoggedSetRow({ set, index, firstKg, onEdit, onDelete, onToggleBackoff, 
         <button
           onClick={onToggleBackoff}
           aria-label="toggle back-off"
+          aria-pressed={backoff}
           style={{
-            display: 'inline-flex', alignItems: 'center', gap: 3, height: 24, padding: '0 9px', borderRadius: 999,
+            display: 'inline-flex', alignItems: 'center', gap: 3, minHeight: 44, padding: '0 10px', borderRadius: 999,
             whiteSpace: 'nowrap', fontFamily: 'Manrope, sans-serif', fontSize: 10.5, fontWeight: 700, cursor: 'pointer',
             background: backoff ? 'color-mix(in srgb, var(--warning) 18%, transparent)' : 'transparent',
-            color: backoff ? 'var(--warning)' : 'var(--text-3)',
+            color: backoff ? 'var(--warning)' : 'var(--text-2)',
             border: '1px solid ' + (backoff ? 'color-mix(in srgb, var(--warning) 45%, transparent)' : 'var(--border)'),
-            opacity: backoff ? 1 : 0.7,
+            opacity: 1,
           }}>
           <GIcon name="chevD" size={11} stroke={2.4} />back-off
         </button>
@@ -67,11 +77,11 @@ function LogRow({ draft, setDraft, onLog, editing }) {
       <div style={{ display: 'flex', gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="gt-micro" style={{ margin: '0 0 5px 4px' }}>WEIGHT</div>
-          <Stepper value={draft.value} step={step} width={'100%'} onChange={(v) => setDraft({ ...draft, value: v })} format={(v) => v} />
+          <Stepper label="Weight" value={draft.value} step={step} width={'100%'} onChange={(v) => setDraft({ ...draft, value: v })} format={(v) => v} />
         </div>
         <div style={{ width: 118, flexShrink: 0 }}>
           <div className="gt-micro" style={{ margin: '0 0 5px 4px' }}>REPS</div>
-          <Stepper value={draft.reps} step={1} min={1} width={'100%'} onChange={(v) => setDraft({ ...draft, reps: v })} />
+          <Stepper label="Repetitions" value={draft.reps} step={1} min={1} width={'100%'} onChange={(v) => setDraft({ ...draft, reps: v })} />
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
@@ -156,9 +166,11 @@ function ExerciseCard({ exercise, sets, last, onLogSet, onEditSet, onDeleteSet, 
 }
 
 /* ---------- Finish celebration overlay ---------- */
-function FinishOverlay({ summary, onClose }) {
+export function FinishOverlay({ summary, onClose }) {
+  const { dialogRef, initialFocusRef } = useModalFocus(onClose);
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 70, background: 'var(--bg)', display: 'flex', flexDirection: 'column', animation: 'gt-fade 0.25s ease', overflow: 'hidden' }}>
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Workout complete" tabIndex={-1}
+      style={{ position: 'fixed', inset: 0, zIndex: 70, background: 'var(--bg)', display: 'flex', flexDirection: 'column', animation: 'gt-fade 0.25s ease', overflow: 'hidden' }}>
       <Confetti run={true} />
       <div className="gt-scroll" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '40px 28px 120px', position: 'relative', zIndex: 6 }}>
         <div style={{ width: 86, height: 86, borderRadius: 999, background: 'var(--success-soft)', color: 'var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'gt-pop 0.55s cubic-bezier(.2,1.4,.4,1)' }}>
@@ -191,8 +203,8 @@ function FinishOverlay({ summary, onClose }) {
           </div>
         )}
       </div>
-      <div style={{ position: 'absolute', left: 20, right: 20, bottom: 28, zIndex: 7 }}>
-        <button className="gt-btn gt-btn-primary" style={{ width: '100%', minHeight: 54, fontSize: 16 }} onClick={onClose}>Done</button>
+      <div style={{ position: 'absolute', left: 20, right: 20, bottom: 'calc(20px + env(safe-area-inset-bottom))', zIndex: 7 }}>
+        <button ref={initialFocusRef} className="gt-btn gt-btn-primary" style={{ width: '100%', minHeight: 54, fontSize: 16 }} onClick={onClose}>Done</button>
       </div>
     </div>
   );
@@ -200,7 +212,16 @@ function FinishOverlay({ summary, onClose }) {
 
 /* ---------- Today screen ---------- */
 export default function TodayScreen() {
-  const store = useStore();
+  const store = useStore(useShallow((state) => ({
+    period: state.period, variants: state.variants, workouts: state.workouts,
+    setsByWorkout: state.setsByWorkout, exercises: state.exercises,
+    sessionInView: state.sessionInView, currentVariant: state.currentVariant, variantMap: state.variantMap,
+    cycleDone: state.cycleDone, createWorkout: state.createWorkout, deleteSet: state.deleteSet,
+    restoreSet: state.restoreSet, logSet: state.logSet, autoFinishIfComplete: state.autoFinishIfComplete,
+    finishWorkout: state.finishWorkout, archiveAndStartNew: state.archiveAndStartNew,
+    editSet: state.editSet, toggleBackoff: state.toggleBackoff, setActiveCycle: state.setActiveCycle,
+    setActiveVariant: state.setActiveVariant, swapEntry: state.swapEntry, addExercise: state.addExercise,
+  })));
   const { period, variants, workouts, setsByWorkout, exercises } = store;
   const exMap = useMemo(() => Object.fromEntries(exercises.map((e) => [e.id, e])), [exercises]);
 
@@ -210,6 +231,10 @@ export default function TodayScreen() {
   const cycleRowRef = useRef(null);
   const [celebrate, setCelebrate] = useState(null);
   const [justLogged, setJustLogged] = useState(null);
+  const [undoSet, setUndoSet] = useState(null);
+  const undoTimerRef = useRef(null);
+
+  useEffect(() => () => clearTimeout(undoTimerRef.current), []);
 
   const workout = store.sessionInView();
   const pending = store.currentVariant();
@@ -247,18 +272,40 @@ export default function TodayScreen() {
 
   const entries = workout ? workout.entries : (variant ? variant.exerciseIds.map((exerciseId) => ({ exerciseId })) : []);
   const todaySets = workout ? (setsByWorkout[workout.id] || []) : [];
-  const logs = useMemo(
-    () => (period ? buildLogs(workouts, setsByWorkout, period.id, exMap) : {}),
-    [workouts, setsByWorkout, period, exMap]
-  );
+  const todaySetsByExercise = useMemo(() => {
+    const grouped = {};
+    for (const setRow of todaySets) (grouped[setRow.exerciseId] ||= []).push(setRow);
+    for (const rows of Object.values(grouped)) rows.sort((a, b) => a.n - b.n);
+    return grouped;
+  }, [todaySets]);
+  const sessionVolume = useMemo(() => todaySets.reduce((total, setRow) => total + setRow.realKg * setRow.reps, 0), [todaySets]);
   const totalSets = todaySets.length;
   const finished = !!workout?.finished;
   const overGoal = period && cycle > cycleGoal;
   // a session trained on another day: shown as a record of what was lifted, not as today's plan
   const viewDate = workout ? workout.date : isoDate();
   const past = !!workout && viewDate !== isoDate();
+  const previousSets = useMemo(
+    () => lastSetsBeforeByExercise(workouts, setsByWorkout, workout || { date: viewDate, id: Infinity }),
+    [workouts, setsByWorkout, workout, viewDate]
+  );
 
   const ensureWorkout = async () => workout || (await store.createWorkout(activeCode));
+
+  const deleteSet = async (setRow) => {
+    const deleted = await store.deleteSet(setRow.id, setRow.workoutId);
+    if (!deleted) return;
+    clearTimeout(undoTimerRef.current);
+    setUndoSet(deleted);
+    undoTimerRef.current = setTimeout(() => setUndoSet(null), 6000);
+  };
+
+  const undoDelete = async () => {
+    if (!undoSet) return;
+    clearTimeout(undoTimerRef.current);
+    await store.restoreSet(undoSet);
+    setUndoSet(null);
+  };
 
   const logSet = async (i, draft) => {
     const w = await ensureWorkout();
@@ -296,7 +343,7 @@ export default function TodayScreen() {
           <div className="gt-label" style={{ color: 'var(--accent)' }}>Cycle {cycle}</div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 5 }}>
             <div className="gt-num" style={{ fontSize: 34, lineHeight: 1 }}>{variant?.code || '—'}</div>
-            <button onClick={() => setVariantSheet(true)} aria-label="change variant" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, height: 30, padding: '0 11px', borderRadius: 999, background: 'var(--surface-2)', border: '1px solid var(--border-strong)', color: 'var(--text-2)', fontFamily: 'Manrope, sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
+            <button onClick={() => setVariantSheet(true)} aria-label="change variant" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, minHeight: 44, padding: '0 13px', borderRadius: 999, background: 'var(--surface-2)', border: '1px solid var(--border-strong)', color: 'var(--text-2)', fontFamily: 'Manrope, sans-serif', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
               Change<GIcon name="swap" size={13} stroke={1.9} />
             </button>
           </div>
@@ -314,7 +361,7 @@ export default function TodayScreen() {
           <div className="gt-label" style={{ color: 'var(--text-2)' }}>Cycle progress</div>
           <div className="gt-num" style={{ fontSize: 14, color: 'var(--text-2)' }}>{doneCount}<span style={{ color: 'var(--text-3)' }}> / {variants.length || 6} done</span></div>
         </div>
-        <div style={{ display: 'flex', gap: 5 }}>
+        <div role="progressbar" aria-label="Cycle progress" aria-valuemin="0" aria-valuemax={variants.length || 6} aria-valuenow={doneCount} style={{ display: 'flex', gap: 5 }}>
           {variants.map((v) => {
             const done = doneSet.has(v.code);
             const isActive = v.code === activeCode && !done;
@@ -340,7 +387,7 @@ export default function TodayScreen() {
             <div style={{ minWidth: 0 }}>
               <div className="gt-h2" style={{ fontSize: 15 }}>{past ? fmtDate(viewDate) : 'Workout complete'}</div>
               <div className="gt-sub">
-                {totalSets} sets · {(dayVolume((logs[workout.cycle ?? cycle] || {})[workout.variant]) / 1000).toFixed(1)} t total.
+                {totalSets} sets · {(sessionVolume / 1000).toFixed(1)} t total.
                 {past ? ' This is what you logged that day — edits still apply.' : ' You can still edit sets.'}
               </div>
             </div>
@@ -361,14 +408,14 @@ export default function TodayScreen() {
       ) : (
         entries.map((en, i) => {
           const exercise = exMap[en.exerciseId] || { id: en.exerciseId, name: en.exerciseId, muscle: '—', unit: 'kg' };
-          const sets = todaySets.filter((s) => s.exerciseId === en.exerciseId).sort((a, b) => a.n - b.n);
+          const sets = todaySetsByExercise[en.exerciseId] || [];
           // reference is what came *before* the session on screen, not before today
-          const last = lastSetsGlobal(workouts, setsByWorkout, en.exerciseId, viewDate);
+          const last = previousSets[en.exerciseId] || null;
           return (
             <ExerciseCard key={en.exerciseId + i} exercise={exercise} sets={sets} last={last} justLogged={justLogged === i}
               onLogSet={(d) => logSet(i, d)}
               onEditSet={(s, d) => store.editSet(s.id, s.workoutId, d)}
-              onDeleteSet={(s) => store.deleteSet(s.id, s.workoutId)}
+              onDeleteSet={deleteSet}
               onToggleBackoff={(s) => store.toggleBackoff(s.id, s.workoutId)}
               onSwap={() => { setSwapIdx(i); setSwapQuery(''); }} />
           );
@@ -426,9 +473,9 @@ export default function TodayScreen() {
       {/* Swap one exercise for this session */}
       <Sheet open={swapIdx != null} onClose={() => setSwapIdx(null)} title="Swap exercise for today">
         <div className="gt-sub" style={{ marginBottom: 12, lineHeight: 1.5 }}>Machine taken or unavailable? Swap it for today only — your routine stays unchanged.</div>
-        <input className="gt-input" value={swapQuery} onChange={(e) => setSwapQuery(e.target.value)} placeholder="Search or type a new exercise…" />
+        <input className="gt-input" aria-label="Exercise search" value={swapQuery} onChange={(e) => setSwapQuery(e.target.value)} placeholder="Search or type a new exercise…" />
         <div style={{ marginTop: 10 }}>
-          {exercises.filter((e) => e.active !== false && e.name.toLowerCase().includes(swapQuery.toLowerCase())).slice(0, 12).map((e) => (
+          {availableSwapExercises(exercises, entries, swapIdx, swapQuery).slice(0, 12).map((e) => (
             <button key={e.id} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '11px 4px', background: 'none', border: 'none', borderBottom: '1px solid var(--border)', font: 'inherit', color: 'inherit', textAlign: 'left', cursor: 'pointer' }}
               onClick={async () => {
                 const w = await ensureWorkout();
@@ -456,6 +503,7 @@ export default function TodayScreen() {
       </Sheet>
 
       {celebrate ? <FinishOverlay summary={celebrate} onClose={() => setCelebrate(null)} /> : null}
+      <UndoToast message={undoSet ? 'Set deleted' : ''} onUndo={undoDelete} />
     </div>
   );
 }

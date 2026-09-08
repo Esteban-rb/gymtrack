@@ -1,6 +1,7 @@
 // GymTrack — Settings: mesocycle, profile, rotation editor, medal thresholds, units, backup, theme.
 import React, { useRef, useState } from 'react';
 import { useStore, AUTO_FINISH_MIN_SETS } from '../store.js';
+import { useShallow } from 'zustand/react/shallow';
 import { MUSCLES } from '../db.js';
 import { MEDALS, fmtDate } from '../calc.js';
 import { exportJSON, exportXLSX, importJSON, importXLSX } from '../backup.js';
@@ -24,7 +25,12 @@ function SettingRow({ label, sub, right, onClick, ariaLabel }) {
 }
 
 export default function SettingsScreen() {
-  const store = useStore();
+  const store = useStore(useShallow((state) => ({
+    profile: state.profile, period: state.period, variants: state.variants, exercises: state.exercises,
+    updatePeriod: state.updatePeriod, archiveAndStartNew: state.archiveAndStartNew,
+    updateProfile: state.updateProfile, saveVariant: state.saveVariant, saveExercise: state.saveExercise,
+    addExercise: state.addExercise, init: state.init, refreshPR: state.refreshPR, dismissMedal: state.dismissMedal,
+  })));
   const { profile, period, variants, exercises } = store;
   const [routineVar, setRoutineVar] = useState(variants[0]?.code || 'U1');
   const [nameDraft, setNameDraft] = useState(null); // editing buffer for the variant's name
@@ -82,7 +88,7 @@ export default function SettingsScreen() {
 
   return (
     <div className="gt-scroll" style={{ height: '100%', padding: '18px 16px 150px' }}>
-      <div className="gt-h1" style={{ marginBottom: 4 }}>Settings</div>
+      <h1 className="gt-h1" style={{ marginBottom: 4 }}>Settings</h1>
       <div className="gt-sub">Mesocycle, routine & data</div>
 
       <SectionHead>Mesocycle</SectionHead>
@@ -91,7 +97,7 @@ export default function SettingsScreen() {
         <SettingRow label="Current cycle" right={<div className="gt-num" style={{ fontSize: 15 }}>{period ? (period.cycle ?? 1) : '—'}</div>} />
         <SettingRow label="Cycle goal" sub="1 cycle = one full pass through the 6 variants" right={
           <div style={{ display: 'flex', gap: 5 }}>
-            {[4, 6, 8].map((c) => <button key={c} className={'gt-chip' + ((period?.cycleGoal || 6) === c ? ' on' : '')} onClick={() => store.updatePeriod({ cycleGoal: c })}>{c}</button>)}
+            {[4, 6, 8].map((c) => <button key={c} className={'gt-chip' + ((period?.cycleGoal || 6) === c ? ' on' : '')} aria-pressed={(period?.cycleGoal || 6) === c} onClick={() => store.updatePeriod({ cycleGoal: c })}>{c}</button>)}
           </div>
         } />
         <div style={{ padding: '14px 0' }}>
@@ -116,29 +122,29 @@ export default function SettingsScreen() {
 
       <SectionHead>Profile</SectionHead>
       <div className="gt-card" style={{ padding: '4px 16px' }}>
-        <SettingRow label="Age" right={<Stepper value={profile.age} step={1} min={10} width={120} onChange={(v) => store.updateProfile({ age: v })} />} />
-        <SettingRow label="Body weight" sub="Used for strength standards" right={<Stepper value={profile.bodyweightKg} step={0.5} min={30} width={134} onChange={(v) => store.updateProfile({ bodyweightKg: v })} format={(v) => v + ' kg'} />} />
+        <SettingRow label="Age" right={<Stepper label="Age" value={profile.age} step={1} min={10} width={120} onChange={(v) => store.updateProfile({ age: v })} />} />
+        <SettingRow label="Body weight" sub="Used for strength standards" right={<Stepper label="Body weight" value={profile.bodyweightKg} step={0.5} min={30} width={134} onChange={(v) => store.updateProfile({ bodyweightKg: v })} format={(v) => v + ' kg'} />} />
       </div>
 
       <SectionHead>Appearance</SectionHead>
       <div className="gt-card" style={{ padding: '4px 16px 16px' }}>
         <SettingRow label="Theme" right={
           <div style={{ display: 'flex', gap: 5 }}>
-            {['dark', 'light'].map((t) => <button key={t} className={'gt-chip' + (profile.theme === t ? ' on' : '')} onClick={() => store.updateProfile({ theme: t })}>{t}</button>)}
+            {['dark', 'light'].map((t) => <button key={t} className={'gt-chip' + (profile.theme === t ? ' on' : '')} aria-pressed={profile.theme === t} onClick={() => store.updateProfile({ theme: t })}>{t}</button>)}
           </div>
         } />
         <div className="gt-micro" style={{ margin: '14px 0 10px 2px' }}>ACCENT COLOR</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 9 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(44px, 1fr))', gap: 9 }}>
           {ACCENTS.map((c) => {
             const on = !mono && (profile.accent || ACCENTS[0]).toLowerCase() === c.toLowerCase();
-            return <button key={c} title={c} aria-label={'accent ' + c} onClick={() => store.updateProfile({ accent: c })}
+            return <button key={c} title={c} aria-label={'accent ' + c} aria-pressed={on} onClick={() => store.updateProfile({ accent: c })}
               style={{ width: '100%', aspectRatio: '1', borderRadius: 999, cursor: 'pointer', padding: 0, background: c, border: '3px solid ' + (on ? 'var(--text)' : 'transparent'), WebkitTapHighlightColor: 'transparent' }} />;
           })}
         </div>
         {/* Mono isn't a hue — it repaints the whole app (medals and charts included) in
             black & white, so it gets its own slot instead of a 17th dot. */}
         <div className="gt-micro" style={{ margin: '18px 0 10px 2px' }}>SPECIAL</div>
-        <button aria-label="accent mono" onClick={() => store.updateProfile({ accent: mono ? ACCENTS[0] : 'mono' })}
+        <button aria-label="accent mono" aria-pressed={mono} onClick={() => store.updateProfile({ accent: mono ? ACCENTS[0] : 'mono' })}
           style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '11px 13px', borderRadius: 16, cursor: 'pointer', font: 'inherit', color: 'inherit', textAlign: 'left', background: mono ? 'var(--accent-soft)' : 'var(--input-bg)', border: '1px solid ' + (mono ? 'var(--accent)' : 'var(--border)'), WebkitTapHighlightColor: 'transparent' }}>
           <span style={{ width: 30, height: 30, borderRadius: 999, flexShrink: 0, background: 'linear-gradient(135deg, #FFFFFF 0 50%, #101114 50% 100%)', border: '2px solid ' + (mono ? 'var(--text)' : 'var(--border-strong)') }} />
           <span style={{ flex: 1, minWidth: 0 }}>
@@ -154,7 +160,7 @@ export default function SettingsScreen() {
         <SettingRow label="Auto-finish" sub={'Closes the session once every exercise has ' + AUTO_FINISH_MIN_SETS + '+ sets'} right={
           <div style={{ display: 'flex', gap: 5 }}>
             {[['on', true], ['off', false]].map(([l, v]) => (
-              <button key={l} className={'gt-chip' + (autoFinish === v ? ' on' : '')} aria-label={'auto-finish ' + l}
+              <button key={l} className={'gt-chip' + (autoFinish === v ? ' on' : '')} aria-label={'auto-finish ' + l} aria-pressed={autoFinish === v}
                 onClick={() => store.updateProfile({ autoFinish: v })}>{l}</button>
             ))}
           </div>
@@ -165,12 +171,13 @@ export default function SettingsScreen() {
       <div className="gt-card" style={{ padding: '14px 16px' }}>
         <div className="gt-scroll" style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
           {variants.map((v) => (
-            <button key={v.code} className={'gt-chip' + (routineVar === v.code ? ' on' : '')} style={{ flexShrink: 0 }} onClick={() => { setRoutineVar(v.code); setNameDraft(null); }}>{v.code}</button>
+            <button key={v.code} className={'gt-chip' + (routineVar === v.code ? ' on' : '')} aria-pressed={routineVar === v.code} style={{ flexShrink: 0 }} onClick={() => { setRoutineVar(v.code); setNameDraft(null); }}>{v.code}</button>
           ))}
         </div>
         <div className="gt-micro" style={{ margin: '12px 0 5px 4px' }}>{variant.code} · NAME</div>
         <input
           className="gt-input"
+          aria-label={variant.code + ' variant name'}
           value={nameDraft != null ? nameDraft : (variant.name || '')}
           placeholder="e.g. Upper 1, Lower 2…"
           onChange={(e) => setNameDraft(e.target.value)}
@@ -187,16 +194,16 @@ export default function SettingsScreen() {
             if (!e) return null;
             return (
               <div key={id + idx} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <button className="gt-iconbtn" style={{ width: 26, height: 22, minWidth: 26, borderRadius: 8, color: 'var(--text-3)' }} onClick={() => moveExercise(idx, -1)} aria-label="move up"><GIcon name="chevU" size={12} stroke={2.6} /></button>
-                  <button className="gt-iconbtn" style={{ width: 26, height: 22, minWidth: 26, borderRadius: 8, color: 'var(--text-3)' }} onClick={() => moveExercise(idx, 1)} aria-label="move down"><GIcon name="chevD" size={12} stroke={2.6} /></button>
+                <div style={{ display: 'flex', gap: 2 }}>
+                  <button className="gt-iconbtn" style={{ borderRadius: 10, color: 'var(--text-3)' }} onClick={() => moveExercise(idx, -1)} aria-label={'move ' + e.name + ' up'}><GIcon name="chevU" size={12} stroke={2.6} /></button>
+                  <button className="gt-iconbtn" style={{ borderRadius: 10, color: 'var(--text-3)' }} onClick={() => moveExercise(idx, 1)} aria-label={'move ' + e.name + ' down'}><GIcon name="chevD" size={12} stroke={2.6} /></button>
                 </div>
                 <div style={{ flex: 1 }}>
                   <div className="gt-body" style={{ fontWeight: 700, fontSize: 13.5 }}>{e.name}</div>
                   <div className="gt-micro">{e.muscle}{e.isBasic ? ' · big lift' : ''}</div>
                 </div>
-                <button className="gt-iconbtn" style={{ width: 34, height: 34, minWidth: 34, color: 'var(--text-2)' }} onClick={() => setEditingEx({ ...e })} aria-label="edit"><GIcon name="edit" size={14} /></button>
-                <button className="gt-iconbtn" style={{ width: 34, height: 34, minWidth: 34, color: 'var(--text-3)' }} onClick={() => removeExercise(idx)} aria-label="remove"><GIcon name="x" size={14} /></button>
+                <button className="gt-iconbtn" style={{ color: 'var(--text-2)' }} onClick={() => setEditingEx({ ...e })} aria-label={'edit ' + e.name}><GIcon name="edit" size={14} /></button>
+                <button className="gt-iconbtn" style={{ color: 'var(--text-3)' }} onClick={() => removeExercise(idx)} aria-label={'remove ' + e.name}><GIcon name="x" size={14} /></button>
               </div>
             );
           })}
@@ -235,10 +242,10 @@ export default function SettingsScreen() {
       <Sheet open={!!editingEx} onClose={() => setEditingEx(null)} title="Edit exercise">
         {editingEx ? (<>
           <div className="gt-micro" style={{ margin: '0 0 5px 4px' }}>NAME</div>
-          <input className="gt-input" value={editingEx.name} onChange={(e) => setEditingEx({ ...editingEx, name: e.target.value })} />
+          <input className="gt-input" aria-label="Exercise name" value={editingEx.name} onChange={(e) => setEditingEx({ ...editingEx, name: e.target.value })} />
           <div className="gt-micro" style={{ margin: '14px 0 7px 4px' }}>MUSCLE GROUP</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {MUSCLES.map((m) => <button key={m} className={'gt-chip' + (editingEx.muscle === m ? ' on' : '')} onClick={() => setEditingEx({ ...editingEx, muscle: m })}>{m}</button>)}
+            {MUSCLES.map((m) => <button key={m} className={'gt-chip' + (editingEx.muscle === m ? ' on' : '')} aria-pressed={editingEx.muscle === m} onClick={() => setEditingEx({ ...editingEx, muscle: m })}>{m}</button>)}
           </div>
           <div className="gt-micro" style={{ margin: '14px 0 7px 4px' }}>DEFAULT UNIT</div>
           <UnitChips value={editingEx.unit} onChange={(u) => setEditingEx({ ...editingEx, unit: u })} />
@@ -251,7 +258,7 @@ export default function SettingsScreen() {
 
       {/* Add exercise to variant */}
       <Sheet open={addSheet} onClose={() => setAddSheet(false)} title={'Add to ' + variant.code}>
-        <input className="gt-input" value={addQuery} onChange={(e) => setAddQuery(e.target.value)} placeholder="Search or type a new exercise…" />
+        <input className="gt-input" aria-label="Exercise search" value={addQuery} onChange={(e) => setAddQuery(e.target.value)} placeholder="Search or type a new exercise…" />
         <div style={{ marginTop: 10 }}>
           {exercises.filter((e) => e.active !== false && !variant.exerciseIds.includes(e.id) && e.name.toLowerCase().includes(addQuery.toLowerCase())).slice(0, 12).map((e) => (
             <button key={e.id} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '11px 4px', background: 'none', border: 'none', borderBottom: '1px solid var(--border)', font: 'inherit', color: 'inherit', textAlign: 'left', cursor: 'pointer' }}
@@ -286,6 +293,7 @@ export default function SettingsScreen() {
                 <div key={i} style={{ flex: 1 }}>
                   <div className="gt-micro" style={{ textAlign: 'center', marginBottom: 3 }}>{MEDALS[i].slice(0, 4).toUpperCase()}</div>
                   <input className="gt-input" type="number" step="0.05" min="0" value={r}
+                    aria-label={e.name + ' — ' + MEDALS[i] + ' multiplier'}
                     style={{ padding: '9px 4px', textAlign: 'center', fontSize: 13, borderRadius: 10 }}
                     onChange={(ev) => {
                       const v = parseFloat(ev.target.value);

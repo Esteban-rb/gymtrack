@@ -6,15 +6,25 @@ import { VARIANT_KEYS, est1RM, setTonnage, isoDate, parseISO, addDays } from './
  *  Legacy weekday workouts fall back to cycle = old week, variant = old dayKey. */
 export function buildLogs(workouts, setsByWorkout, periodId, exMap) {
   const logs = {};
-  for (const w of workouts) {
-    if (w.periodId !== periodId) continue;
+  const periodWorkouts = workouts
+    .filter((w) => w.periodId === periodId)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+  for (const w of periodWorkouts) {
     const cycle = w.cycle ?? w.week ?? 1;
     const variant = w.variant ?? w.dayKey ?? '—';
     const sets = setsByWorkout[w.id] || [];
-    const exercises = w.entries.map((en) => ({
+    const setsByExercise = {};
+    for (const s of sets) (setsByExercise[s.exerciseId] ||= []).push(s);
+    for (const rows of Object.values(setsByExercise)) rows.sort((a, b) => a.n - b.n);
+    const seenExercises = new Set();
+    const exercises = (w.entries || []).filter((en) => {
+      if (seenExercises.has(en.exerciseId)) return false;
+      seenExercises.add(en.exerciseId);
+      return true;
+    }).map((en) => ({
       id: en.exerciseId,
       name: (exMap[en.exerciseId] || {}).name || en.exerciseId,
-      sets: sets.filter((s) => s.exerciseId === en.exerciseId).sort((a, b) => a.n - b.n),
+      sets: setsByExercise[en.exerciseId] || [],
     }));
     // sets logged for exercises no longer in the plan (e.g. after swapping variant) still count
     const inPlan = new Set(w.entries.map((en) => en.exerciseId));
@@ -24,13 +34,36 @@ export function buildLogs(workouts, setsByWorkout, periodId, exMap) {
       exercises.push({
         id: s.exerciseId,
         name: (exMap[s.exerciseId] || {}).name || s.exerciseId,
-        sets: sets.filter((x) => x.exerciseId === s.exerciseId).sort((a, b) => a.n - b.n),
+        sets: setsByExercise[s.exerciseId] || [],
       });
     }
     logs[cycle] = logs[cycle] || {};
-    logs[cycle][variant] = { finished: w.finished, workoutId: w.id, block: w.block, variant, date: w.date, exercises };
+    // Keep the familiar variant key for the first session, and give repeated sessions a
+    // stable workout-backed key. A plain assignment here used to silently discard repeats.
+    const slotKey = logs[cycle][variant] ? `${variant}#${w.id}` : variant;
+    logs[cycle][slotKey] = { finished: w.finished, workoutId: w.id, block: w.block, variant, date: w.date, exercises };
   }
   return logs;
+}
+
+/** Find one log entry by its persistent workout id, including repeated variants. */
+export function entryForWorkout(logs, cycle, workoutId) {
+  return Object.values(logs[cycle] || {}).find((entry) => entry.workoutId === workoutId) || null;
+}
+
+/** History rows for a cycle. Active periods keep pending rotation slots visible and append
+ * every repeated session stored under a synthetic key such as U1#42. */
+export function historySlots(cycleLogs = {}, variants = [], isActive = false) {
+  const actual = Object.keys(cycleLogs);
+  if (!isActive || !variants.length) {
+    return actual.map((key) => ({ key, code: cycleLogs[key].variant || key, name: cycleLogs[key].block || key }));
+  }
+  const planned = variants.map((variant) => ({ key: variant.code, code: variant.code, name: variant.name }));
+  const plannedKeys = new Set(planned.map((slot) => slot.key));
+  const repeats = actual
+    .filter((key) => !plannedKeys.has(key))
+    .map((key) => ({ key, code: cycleLogs[key].variant || key.split('#')[0], name: cycleLogs[key].block || key }));
+  return [...planned, ...repeats];
 }
 
 export function dayVolume(entry) {
@@ -95,6 +128,25 @@ export function lastSetsGlobal(workouts, setsByWorkout, exId, beforeDate) {
   return best;
 }
 
+/** Latest prior session for every exercise, built in a single history pass. */
+export function lastSetsBeforeByExercise(workouts, setsByWorkout, before) {
+  const beforeDate = typeof before === 'string' ? before : before?.date;
+  const beforeId = typeof before === 'string' ? -Infinity : (before?.id ?? Infinity);
+  const latest = {};
+  const ordered = workouts
+    .filter((w) => w.date < beforeDate || (w.date === beforeDate && w.id < beforeId))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+  for (const w of ordered) {
+    const grouped = {};
+    for (const s of setsByWorkout[w.id] || []) (grouped[s.exerciseId] ||= []).push(s);
+    for (const [exerciseId, sets] of Object.entries(grouped)) {
+      sets.sort((a, b) => a.n - b.n);
+      latest[exerciseId] = { date: w.date, workoutId: w.id, sets };
+    }
+  }
+  return latest;
+}
+
 /** Most recent previous session containing this exercise (reference + overload base). */
 export function lastSets(logs, exId, beforeCycle, beforeVariant) {
   const vIdx = (d) => { const i = VARIANT_KEYS.indexOf(d); return i < 0 ? 0 : i; };
@@ -111,8 +163,10 @@ export function lastSets(logs, exId, beforeCycle, beforeVariant) {
 }
 
 /** New PRs achieved in a given session vs everything logged before that cycle. */
-export function dayPRs(logs, cycle, variant) {
-  const entry = (logs[cycle] || {})[variant];
+export function dayPRs(logs, cycle, variant, workoutId) {
+  const entry = workoutId == null
+    ? (logs[cycle] || {})[variant]
+    : entryForWorkout(logs, cycle, workoutId);
   if (!entry) return [];
   const prs = [];
   for (const ex of entry.exercises) {
@@ -121,9 +175,13 @@ export function dayPRs(logs, cycle, variant) {
     if (!bestToday) continue;
     let prior = null;
     for (const c of Object.keys(logs)) {
-      if (+c >= cycle) continue;
       for (const d of Object.keys(logs[c])) {
-        const x = logs[c][d].exercises.find((q) => q.id === ex.id);
+        const candidate = logs[c][d];
+        const earlier = workoutId == null
+          ? +c < cycle
+          : candidate.date < entry.date || (candidate.date === entry.date && candidate.workoutId < entry.workoutId);
+        if (!earlier) continue;
+        const x = candidate.exercises.find((q) => q.id === ex.id);
         if (!x) continue;
         for (const s of x.sets) if (prior == null || s.realKg > prior) prior = s.realKg;
       }

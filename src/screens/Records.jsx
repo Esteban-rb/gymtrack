@@ -1,6 +1,7 @@
 // GymTrack — Records: medal gallery (standards for big lifts, personal progression for the rest).
 import React, { useState } from 'react';
 import { useStore } from '../store.js';
+import { useShallow } from 'zustand/react/shallow';
 import { MEDALS, PROGRESSION_STEPS, fmtWeight, fmtDate } from '../calc.js';
 import { MedalBadge, MEDAL_COLORS, Sheet, SectionHead, EmptyState } from '../components.jsx';
 
@@ -29,7 +30,7 @@ function RecordCard({ ex, pr, lvl, onOpen }) {
 }
 
 export default function RecordsScreen() {
-  const store = useStore();
+  const store = useStore(useShallow((state) => ({ exercises: state.exercises, prs: state.prs, profile: state.profile, medalLevel: state.medalLevel })));
   const { exercises, prs, profile } = store;
   const [open, setOpen] = useState(null);
 
@@ -52,7 +53,7 @@ export default function RecordsScreen() {
 
   return (
     <div className="gt-scroll" style={{ height: '100%', padding: '18px 16px 150px' }}>
-      <div className="gt-h1" style={{ marginBottom: 4 }}>Records</div>
+      <h1 className="gt-h1" style={{ marginBottom: 4 }}>Records</h1>
       <div className="gt-sub">Bronze → Diamond. Earn them all.</div>
 
       {!hasAny ? (

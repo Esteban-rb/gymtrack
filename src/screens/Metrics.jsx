@@ -1,8 +1,9 @@
 // GymTrack — Metrics dashboard, grouped by rotation cycle (all figures derived from realKg).
 // v2 design: area line charts (straight segments, no bars) + per-muscle progress accordions
 // with press-and-hold to blow up any exercise's chart.
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store.js';
+import { useShallow } from 'zustand/react/shallow';
 import { MUSCLES } from '../db.js';
 import * as M from '../metrics.js';
 import { GIcon, ProgressBar, Stepper, Sheet, LineChart, Sparkline, Donut, DONUT_COLORS, SectionHead, EmptyState } from '../components.jsx';
@@ -23,13 +24,15 @@ function ExerciseTrendRow({ ex, focus }) {
   const [pinned, setPinned] = useState(false);
   const timer = useRef(null);
   const rowRef = useRef(null);
+  const chartId = useId();
   const start = () => { clearTimeout(timer.current); timer.current = setTimeout(() => setHeld(true), 280); };
   const end = () => { clearTimeout(timer.current); setHeld(false); setPinned(false); };
   useEffect(() => {
     if (!focus) return;
     setPinned(true);
     // optional call: jsdom has no scrollIntoView, and the timer can outlive the test
-    const t = setTimeout(() => rowRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' }), 80);
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const t = setTimeout(() => rowRef.current?.scrollIntoView?.({ behavior: reduced ? 'auto' : 'smooth', block: 'center' }), 80);
     return () => clearTimeout(t);
   }, [focus]);
   const open = held || pinned;
@@ -38,6 +41,10 @@ function ExerciseTrendRow({ ex, focus }) {
   const d = cur - s[0].kg;
   return (
     <div ref={rowRef}
+      role="button" tabIndex={0} aria-expanded={open} aria-controls={chartId}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setPinned((value) => !value); }
+      }}
       onPointerDown={start} onPointerUp={end} onPointerCancel={end} onPointerLeave={end}
       onContextMenu={(e) => e.preventDefault()}
       style={{ borderTop: '1px solid var(--border)', userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none', touchAction: held ? 'none' : 'pan-y' }}>
@@ -53,8 +60,8 @@ function ExerciseTrendRow({ ex, focus }) {
         </div>
       </div>
       {open && (
-        <div aria-label={ex.name + ' chart'} style={{ paddingBottom: 10, animation: 'gt-pop 0.25s cubic-bezier(.2,1.2,.4,1)', transformOrigin: '50% 0' }}>
-          <LineChart data={s} height={110} labelKey="cycle" fmtLabel={(l) => 'C' + l} fmtVal={(v) => v + ' kg'} />
+        <div id={chartId} aria-label={ex.name + ' chart'} style={{ paddingBottom: 10, animation: 'gt-pop 0.25s cubic-bezier(.2,1.2,.4,1)', transformOrigin: '50% 0' }}>
+          <LineChart ariaLabel={`${ex.name} average load trend from ${s[0].kg} to ${cur} kg`} data={s} height={110} labelKey="cycle" fmtLabel={(l) => 'C' + l} fmtVal={(v) => v + ' kg'} />
         </div>
       )}
     </div>
@@ -67,9 +74,10 @@ function MuscleCard({ muscle, data, open, onToggle, focusExercise }) {
   const cur = s[s.length - 1].kg;
   const d = cur - s[0].kg;
   const nEx = data.exercises.length;
+  const contentId = useId();
   return (
     <div className="gt-card" style={{ marginBottom: 10, overflow: 'hidden', borderColor: open ? 'var(--accent)' : undefined }}>
-      <button onClick={onToggle} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', minHeight: 54, background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', font: 'inherit', color: 'inherit', WebkitTapHighlightColor: 'transparent' }}>
+      <button onClick={onToggle} aria-expanded={open} aria-controls={contentId} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', minHeight: 54, background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', font: 'inherit', color: 'inherit', WebkitTapHighlightColor: 'transparent' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="gt-body" style={{ fontWeight: 800, fontSize: 15 }}>{muscle}</div>
           <div className="gt-micro" style={{ marginTop: 1 }}>{nEx}{nEx === 1 ? ' exercise' : ' exercises'}</div>
@@ -81,13 +89,13 @@ function MuscleCard({ muscle, data, open, onToggle, focusExercise }) {
         <GIcon name="chevD" size={16} style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', color: 'var(--text-2)', flexShrink: 0 }} />
       </button>
       {open && (
-        <div style={{ padding: '0 16px 14px' }}>
+        <div id={contentId} style={{ padding: '0 16px 14px' }}>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <span className="gt-chip on" style={{ height: 26, padding: '0 10px', fontSize: 10, cursor: 'default' }}>Avg kg / rep</span>
             <span className="gt-chip" style={{ height: 26, padding: '0 10px', fontSize: 10, cursor: 'default' }}>C{s[0].cycle} – C{s[s.length - 1].cycle}</span>
           </div>
           <div className="gt-num" style={{ fontSize: 34, lineHeight: 1, margin: '8px 0 2px' }}>{fmtDelta(d)}</div>
-          <LineChart data={s} height={118} labelKey="cycle" fmtLabel={(l) => 'C' + l} fmtVal={(v) => v + ' kg'} />
+          <LineChart ariaLabel={`${muscle} average load trend from ${s[0].kg} to ${cur} kg`} data={s} height={118} labelKey="cycle" fmtLabel={(l) => 'C' + l} fmtVal={(v) => v + ' kg'} />
           <div style={{ marginTop: 6 }}>
             {data.exercises.map((e) => (
               <ExerciseTrendRow key={e.id} ex={e} focus={focusExercise && focusExercise.id === e.id ? focusExercise.n : null} />
@@ -100,7 +108,11 @@ function MuscleCard({ muscle, data, open, onToggle, focusExercise }) {
 }
 
 export default function MetricsScreen({ focus }) {
-  const store = useStore();
+  const store = useStore(useShallow((state) => ({
+    period: state.period, variants: state.variants, workouts: state.workouts,
+    setsByWorkout: state.setsByWorkout, exercises: state.exercises, bodyweight: state.bodyweight,
+    profile: state.profile, prs: state.prs, medalLevel: state.medalLevel, addBodyweight: state.addBodyweight,
+  })));
   const { period, variants, workouts, setsByWorkout, exercises, bodyweight } = store;
   const exMap = useMemo(() => Object.fromEntries(exercises.map((e) => [e.id, e])), [exercises]);
 
@@ -181,7 +193,7 @@ export default function MetricsScreen({ focus }) {
   if (!hasData && !hasMedals) {
     return (
       <div className="gt-scroll" style={{ height: '100%', padding: '18px 16px 150px' }}>
-        <div className="gt-h1" style={{ marginBottom: 4 }}>Metrics</div>
+        <h1 className="gt-h1" style={{ marginBottom: 4 }}>Metrics</h1>
         <div className="gt-sub">Your training dashboard</div>
         <div className="gt-card" style={{ marginTop: 18 }}>
           <EmptyState icon="chart" title="No data yet" body="Finish your first session and your volume, muscle and progress charts will light up here." />
@@ -194,7 +206,7 @@ export default function MetricsScreen({ focus }) {
     // no workouts in the active period yet, but there IS history (e.g. imported / archived)
     return (
       <div className="gt-scroll" style={{ height: '100%', padding: '18px 16px 150px' }}>
-        <div className="gt-h1" style={{ marginBottom: 4 }}>Metrics</div>
+        <h1 className="gt-h1" style={{ marginBottom: 4 }}>Metrics</h1>
         <div className="gt-sub">Cycle {cycle} · by cycle</div>
         <SectionHead>Muscle medal map</SectionHead>
         <MetricCard>
@@ -210,7 +222,7 @@ export default function MetricsScreen({ focus }) {
 
   return (
     <div className="gt-scroll" style={{ height: '100%', padding: '18px 16px 150px' }}>
-      <div className="gt-h1" style={{ marginBottom: 4 }}>Metrics</div>
+      <h1 className="gt-h1" style={{ marginBottom: 4 }}>Metrics</h1>
       <div className="gt-sub">Cycle {cycle} in progress · by cycle</div>
 
       {/* Cycles completed + adherence row */}
@@ -218,7 +230,7 @@ export default function MetricsScreen({ focus }) {
         <MetricCard style={{ flex: 1.4, marginBottom: 0 }}>
           <div className="gt-label">Cycles complete</div>
           <div className="gt-display" style={{ marginTop: 8 }}>{Math.max(0, cycle - 1)}<span style={{ fontSize: 17, color: 'var(--text-3)', fontWeight: 500 }}> / {cycleGoal}</span></div>
-          <div style={{ marginTop: 12 }}><ProgressBar value={Math.max(0, cycle - 1)} max={cycleGoal} /></div>
+          <div style={{ marginTop: 12 }}><ProgressBar label="Mesocycle progress" value={Math.max(0, cycle - 1)} max={cycleGoal} /></div>
           <div className="gt-micro" style={{ marginTop: 7 }}>{Math.max(0, cycleGoal - (cycle - 1))} cycles to your goal</div>
         </MetricCard>
         <MetricCard style={{ flex: 1, marginBottom: 0 }}>
@@ -231,8 +243,8 @@ export default function MetricsScreen({ focus }) {
       <SectionHead>Tonnage per cycle</SectionHead>
       <MetricCard>
         <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-          <button className={'gt-chip' + (volMode === 'tonnage' ? ' on' : '')} onClick={() => setVolMode('tonnage')}>Tonnage</button>
-          <button className={'gt-chip' + (volMode === 'avg' ? ' on' : '')} onClick={() => setVolMode('avg')}>Avg kg × avg reps</button>
+          <button className={'gt-chip' + (volMode === 'tonnage' ? ' on' : '')} aria-pressed={volMode === 'tonnage'} onClick={() => setVolMode('tonnage')}>Tonnage</button>
+          <button className={'gt-chip' + (volMode === 'avg' ? ' on' : '')} aria-pressed={volMode === 'avg'} onClick={() => setVolMode('avg')}>Avg kg × avg reps</button>
         </div>
         {lastVol ? (
           <div className="gt-num" style={{ fontSize: 34, lineHeight: 1, marginBottom: 4 }}>
@@ -243,7 +255,7 @@ export default function MetricsScreen({ focus }) {
             </span>
           </div>
         ) : null}
-        <LineChart data={cycleVol} height={130} valueKey="value" labelKey="cycle" fmtLabel={(l) => 'C' + l} fmtVal={fmtTon} />
+        <LineChart ariaLabel={`${volMode === 'tonnage' ? 'Tonnage' : 'Average load'} per cycle; latest ${lastVol ? fmtTon(lastVol.value) : 'none'}`} data={cycleVol} height={130} valueKey="value" labelKey="cycle" fmtLabel={(l) => 'C' + l} fmtVal={fmtTon} />
         <div className="gt-micro" style={{ marginTop: 8 }}>{volMode === 'tonnage' ? 'Real kg lifted per cycle · 1 point = one full pass through the 6 variants' : 'Average real kg × average reps per set, per cycle'}</div>
       </MetricCard>
 
@@ -267,7 +279,7 @@ export default function MetricsScreen({ focus }) {
       <SectionHead>Volume split · mesocycle</SectionHead>
       <MetricCard>
         <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
-          <Donut data={split.slice(0, 6)} />
+          <Donut ariaLabel={`Mesocycle volume split across ${split.slice(0, 6).map((item) => item.muscle).join(', ')}`} data={split.slice(0, 6)} />
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 7 }}>
             {split.slice(0, 6).map((s, i) => (
               <div key={s.muscle} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -295,13 +307,13 @@ export default function MetricsScreen({ focus }) {
           })() : null}
         </div>
         {bodyweight.length > 1
-          ? <LineChart data={bwSeries} height={92} valueKey="kg" labelKey="label" fmtLabel={(l) => l} fmtVal={(v) => v} />
+          ? <LineChart ariaLabel={`Body weight trend from ${bodyweight[0].kg} to ${bodyweight[bodyweight.length - 1].kg} kg`} data={bwSeries} height={92} valueKey="kg" labelKey="label" fmtLabel={(l) => l} fmtVal={(v) => v} />
           : <div className="gt-sub">Log your weight weekly to see the trend.</div>}
       </MetricCard>
 
       <Sheet open={showBwSheet} onClose={() => setShowBwSheet(false)} title="Log body weight">
         <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0 4px' }}>
-          <Stepper value={bwDraft} step={0.1} width={200} onChange={setBwDraft} format={(v) => v.toFixed(1) + ' kg'} />
+          <Stepper label="Body weight" value={bwDraft} step={0.1} width={200} onChange={setBwDraft} format={(v) => v.toFixed(1) + ' kg'} />
         </div>
         <button className="gt-btn gt-btn-primary" style={{ width: '100%', marginTop: 16 }} onClick={async () => {
           await store.addBodyweight(+bwDraft.toFixed(1));

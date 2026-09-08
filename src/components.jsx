@@ -101,10 +101,13 @@ export function MedalBadge({ level, size = 44, animate = false }) {
 }
 
 /* ============ Progress bar ============ */
-export function ProgressBar({ value, max, height = 8, color = 'var(--accent)' }) {
-  const pct = Math.min(100, Math.max(0, (value / max) * 100));
+export function ProgressBar({ value, max, label = 'Progress', height = 8, color = 'var(--accent)' }) {
+  const safeMax = Math.max(0, Number(max) || 0);
+  const safeValue = Math.min(safeMax, Math.max(0, Number(value) || 0));
+  const pct = safeMax > 0 ? (safeValue / safeMax) * 100 : 0;
   return (
-    <div style={{ height, borderRadius: 999, background: 'var(--input-bg)', overflow: 'hidden' }}>
+    <div role="progressbar" aria-label={label} aria-valuemin="0" aria-valuemax={safeMax} aria-valuenow={safeValue}
+      style={{ height, borderRadius: 999, background: 'var(--input-bg)', overflow: 'hidden' }}>
       <div style={{ width: pct + '%', height: '100%', borderRadius: 999, background: color, transition: 'width 0.5s cubic-bezier(.4,0,.2,1)' }} />
     </div>
   );
@@ -129,7 +132,7 @@ export function RingProgress({ value, max, size = 78, thickness = 5, children })
 }
 
 /* ============ Stepper (+/- buttons; the number itself is a numeric input) ============ */
-export function Stepper({ value, onChange, step = 1, min = 0, format, width = 132 }) {
+export function Stepper({ label = 'Value', value, onChange, step = 1, min = 0, format, width = 132 }) {
   const [text, setText] = useState(null); // null = not editing; string = live keyboard entry
   const commit = () => {
     if (text == null) return;
@@ -139,7 +142,7 @@ export function Stepper({ value, onChange, step = 1, min = 0, format, width = 13
   };
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'var(--input-bg)', borderRadius: 14, border: '1px solid var(--border)', height: 48, width }}>
-      <button className="gt-iconbtn" style={{ border: 'none', background: 'transparent', width: 42, height: 46 }} onClick={() => onChange(Math.max(min, +(value - step).toFixed(2)))} aria-label="decrease"><GIcon name="minus" size={18} /></button>
+      <button className="gt-iconbtn" style={{ border: 'none', background: 'transparent', width: 42, height: 46 }} onClick={() => onChange(Math.max(min, +(value - step).toFixed(2)))} aria-label={'Decrease ' + label}><GIcon name="minus" size={18} /></button>
       <input
         className="gt-num"
         type="text" inputMode="decimal" enterKeyHint="done"
@@ -149,8 +152,8 @@ export function Stepper({ value, onChange, step = 1, min = 0, format, width = 13
         onBlur={commit}
         onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
         style={{ flex: 1, minWidth: 0, textAlign: 'center', fontSize: 19, background: 'transparent', border: 'none', outline: 'none', color: 'var(--text)', padding: 0 }}
-        aria-label="value" />
-      <button className="gt-iconbtn" style={{ border: 'none', background: 'transparent', width: 42, height: 46 }} onClick={() => onChange(+(value + step).toFixed(2))} aria-label="increase"><GIcon name="plus" size={18} /></button>
+        aria-label={label + ' value'} />
+      <button className="gt-iconbtn" style={{ border: 'none', background: 'transparent', width: 42, height: 46 }} onClick={() => onChange(+(value + step).toFixed(2))} aria-label={'Increase ' + label}><GIcon name="plus" size={18} /></button>
     </div>
   );
 }
@@ -161,11 +164,12 @@ export function UnitChips({ value, onChange }) {
   return (
     <div style={{ display: 'flex', gap: 6 }}>
       {BASE_UNITS.map((u) => (
-        <button key={u} className={'gt-chip' + (base === u ? ' on' : '')} onClick={() => onChange(joinUnit(u, dbl))}>{u}</button>
+        <button key={u} className={'gt-chip' + (base === u ? ' on' : '')} aria-pressed={base === u} onClick={() => onChange(joinUnit(u, dbl))}>{u}</button>
       ))}
       <button
         className={'gt-chip' + (dbl ? ' on' : '')}
         style={base === 'plates' ? { opacity: 0.35, cursor: 'default' } : undefined}
+        disabled={base === 'plates'} aria-pressed={dbl}
         onClick={() => base !== 'plates' && onChange(joinUnit(base, !dbl))}
         aria-label="per-side, doubled">×2</button>
     </div>
@@ -174,16 +178,42 @@ export function UnitChips({ value, onChange }) {
 
 /* ============ Bottom sheet ============ */
 export function Sheet({ open, onClose, title, children }) {
+  const titleId = useId();
+  const panelRef = useRef(null);
+  const closeRef = useRef(null);
+  const previousFocus = useRef(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    if (!open) return undefined;
+    previousFocus.current = document.activeElement;
+    (closeRef.current || panelRef.current)?.focus();
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') { event.preventDefault(); onCloseRef.current(); return; }
+      if (event.key !== 'Tab' || !panelRef.current) return;
+      const focusable = [...panelRef.current.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+      if (!focusable.length) { event.preventDefault(); panelRef.current.focus(); return; }
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      previousFocus.current?.focus?.();
+    };
+  }, [open]);
   if (!open) return null;
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)', animation: 'gt-fade 0.2s ease' }} />
-      <div style={{ position: 'relative', background: 'var(--sheet-bg)', borderRadius: '26px 26px 0 0', border: '1px solid var(--border)', borderBottom: 'none', padding: '12px 20px 34px', animation: 'gt-slide-up 0.28s cubic-bezier(.2,1,.4,1)', maxHeight: '78%', display: 'flex', flexDirection: 'column' }}>
+      <div aria-hidden="true" onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)', animation: 'gt-fade 0.2s ease' }} />
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : 'Dialog'} tabIndex={-1}
+        style={{ position: 'relative', background: 'var(--sheet-bg)', borderRadius: '26px 26px 0 0', border: '1px solid var(--border)', borderBottom: 'none', padding: '12px 20px calc(34px + env(safe-area-inset-bottom))', animation: 'gt-slide-up 0.28s cubic-bezier(.2,1,.4,1)', maxHeight: '78%', display: 'flex', flexDirection: 'column' }}>
         <div style={{ width: 40, height: 4.5, borderRadius: 99, background: 'var(--border-strong)', margin: '0 auto 14px' }} />
         {title ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-            <div className="gt-h2">{title}</div>
-            <button className="gt-iconbtn" style={{ width: 36, height: 36, minWidth: 36 }} onClick={onClose} aria-label="close"><GIcon name="x" size={17} /></button>
+            <h2 id={titleId} className="gt-h2">{title}</h2>
+            <button ref={closeRef} className="gt-iconbtn" onClick={onClose} aria-label={'close ' + title}><GIcon name="x" size={17} /></button>
           </div>
         ) : null}
         <div className="gt-scroll" style={{ flex: 1 }}>{children}</div>
@@ -192,9 +222,52 @@ export function Sheet({ open, onClose, title, children }) {
   );
 }
 
+export function UndoToast({ message, onUndo }) {
+  if (!message) return null;
+  return (
+    <div role="status" aria-live="polite" style={{
+      position: 'fixed', left: 16, right: 16, bottom: 'calc(88px + env(safe-area-inset-bottom))', zIndex: 80,
+      maxWidth: 488, margin: '0 auto', minHeight: 48, padding: '8px 10px 8px 16px', borderRadius: 14,
+      display: 'flex', alignItems: 'center', gap: 12, background: 'var(--surface)', color: 'var(--text)',
+      border: '1px solid var(--border-strong)', boxShadow: 'var(--tabbar-shadow)',
+    }}>
+      <span className="gt-body" style={{ flex: 1 }}>{message}</span>
+      <button className="gt-btn gt-btn-ghost" style={{ minHeight: 40, padding: '0 14px' }} onClick={onUndo}>Undo</button>
+    </div>
+  );
+}
+
+/** Focus lifecycle for full-screen overlays that are mounted only while open. */
+export function useModalFocus(onClose) {
+  const dialogRef = useRef(null);
+  const initialFocusRef = useRef(null);
+  const previousFocus = useRef(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    previousFocus.current = document.activeElement;
+    (initialFocusRef.current || dialogRef.current)?.focus();
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') { event.preventDefault(); onCloseRef.current(); return; }
+      if (event.key !== 'Tab' || !dialogRef.current) return;
+      const focusable = [...dialogRef.current.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+      if (!focusable.length) { event.preventDefault(); dialogRef.current.focus(); return; }
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      previousFocus.current?.focus?.();
+    };
+  }, []);
+  return { dialogRef, initialFocusRef };
+}
+
 /* ============ Charts (SVG) ============ */
 /* v2 chart style: straight line + soft accent area fill underneath (bars retired). */
-export function LineChart({ data, height = 120, valueKey = 'kg', labelKey = 'week', fmtLabel = (l) => 'W' + l, fmtVal = (v) => v, area = true }) {
+export function LineChart({ data, height = 120, valueKey = 'kg', labelKey = 'week', fmtLabel = (l) => 'W' + l, fmtVal = (v) => v, area = true, ariaLabel = 'Trend chart' }) {
   const gid = useId();
   const W = 300, H = height, padX = 14, padY = 16, lblH = 16;
   if (!data.length) return null;
@@ -215,7 +288,7 @@ export function LineChart({ data, height = 120, valueKey = 'kg', labelKey = 'wee
   const clampX = (v) => Math.min(W - slotW / 2, Math.max(slotW / 2, v));
   const dotR = data.length > 18 ? 2 : 3.2;
   return (
-    <svg viewBox={'0 0 ' + W + ' ' + (H + lblH)} style={{ width: '100%', display: 'block' }}>
+    <svg role="img" aria-label={ariaLabel} viewBox={'0 0 ' + W + ' ' + (H + lblH)} style={{ width: '100%', display: 'block' }}>
       <defs>
         <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor="var(--accent)" stopOpacity="0.45" />
@@ -268,12 +341,12 @@ export function Sparkline({ data, valueKey = 'kg', width = 70, height = 26 }) {
 /* Series colors live in CSS so a theme can restyle the whole chart set — the Mono accent
  * swaps them for greys. */
 export const DONUT_COLORS = ['var(--accent)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)', 'var(--chart-6)', 'var(--chart-7)', 'var(--chart-8)'];
-export function Donut({ data, size = 130, thickness = 16 }) {
+export function Donut({ data, size = 130, thickness = 16, ariaLabel = 'Volume split chart' }) {
   const total = data.reduce((a, b) => a + b.kg, 0) || 1;
   const R = (size - thickness) / 2, C = size / 2;
   let acc = 0;
   return (
-    <svg width={size} height={size} viewBox={'0 0 ' + size + ' ' + size}>
+    <svg role="img" aria-label={ariaLabel} width={size} height={size} viewBox={'0 0 ' + size + ' ' + size}>
       {data.map((d, i) => {
         const frac = d.kg / total;
         const a0 = acc * 2 * Math.PI - Math.PI / 2; acc += frac;
@@ -294,7 +367,9 @@ export function Confetti({ run }) {
   const mono = useMono();
   useEffect(() => {
     if (!run || !ref.current) return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
     const cv = ref.current, ctx = cv.getContext('2d');
+    if (!ctx) return undefined;
     const w = (cv.width = cv.offsetWidth * 2), h = (cv.height = cv.offsetHeight * 2);
     const colors = mono
       ? ['#FFFFFF', '#E2E5EA', '#C6CBD3', '#9EA3AB', '#787D85', '#FFFFFF']
@@ -329,8 +404,10 @@ export function PeriodFinishOverlay({ summary, onClose }) {
   const medalTotal = summary.medals.reduce((a, b) => a + b, 0);
   const goal = summary.cycleGoal || 6;
   const done = summary.cyclesDone ?? goal;
+  const { dialogRef, initialFocusRef } = useModalFocus(onClose);
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'var(--bg)', display: 'flex', flexDirection: 'column', animation: 'gt-fade 0.25s ease', overflow: 'hidden' }}>
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Mesocycle complete" tabIndex={-1}
+      style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'var(--bg)', display: 'flex', flexDirection: 'column', animation: 'gt-fade 0.25s ease', overflow: 'hidden' }}>
       <Confetti run={true} />
       <div className="gt-scroll" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '60px 24px 120px', position: 'relative', zIndex: 6 }}>
         <div style={{ width: 86, height: 86, borderRadius: 999, background: 'var(--accent-soft)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'gt-pop 0.55s cubic-bezier(.2,1.4,.4,1)' }}>
@@ -403,8 +480,8 @@ export function PeriodFinishOverlay({ summary, onClose }) {
           </div>
         )}
       </div>
-      <div style={{ position: 'absolute', left: 20, right: 20, bottom: 28, zIndex: 7 }}>
-        <button className="gt-btn gt-btn-primary" style={{ width: '100%', minHeight: 54, fontSize: 16 }} onClick={onClose}>Start the next mesocycle</button>
+      <div style={{ position: 'absolute', left: 20, right: 20, bottom: 'calc(20px + env(safe-area-inset-bottom))', zIndex: 7 }}>
+        <button ref={initialFocusRef} className="gt-btn gt-btn-primary" style={{ width: '100%', minHeight: 54, fontSize: 16 }} onClick={onClose}>Start the next mesocycle</button>
       </div>
     </div>
   );
@@ -439,11 +516,11 @@ function TabIcon({ id }) {
  * — una franja de ruido que no se limpiaba hasta el siguiente repintado. */
 export function TabBar({ tab, onChange }) {
   return (
-    <div style={{ position: 'fixed', left: 14, right: 14, bottom: 'calc(14px + env(safe-area-inset-bottom))', zIndex: 40, display: 'flex', gap: 4, padding: 6, borderRadius: 999, background: 'var(--tabbar-bg)', border: '1px solid var(--border)', boxShadow: 'var(--tabbar-shadow)', maxWidth: 520, margin: '0 auto' }}>
+    <nav aria-label="Primary" style={{ position: 'fixed', left: 14, right: 14, bottom: 'calc(14px + env(safe-area-inset-bottom))', zIndex: 40, display: 'flex', gap: 4, padding: 6, borderRadius: 999, background: 'var(--tabbar-bg)', border: '1px solid var(--border)', boxShadow: 'var(--tabbar-shadow)', maxWidth: 520, margin: '0 auto' }}>
       {TABS.map((t) => {
         const on = tab === t.id;
         return (
-          <button key={t.id} onClick={() => onChange(t.id)} aria-label={t.label} style={{
+          <button key={t.id} onClick={() => onChange(t.id)} aria-label={t.label} aria-current={on ? 'page' : undefined} style={{
             flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: '8px 0 6px',
             borderRadius: 999, border: 'none', cursor: 'pointer', minHeight: 48,
             background: on ? 'var(--accent)' : 'transparent',
@@ -455,7 +532,7 @@ export function TabBar({ tab, onChange }) {
           </button>
         );
       })}
-    </div>
+    </nav>
   );
 }
 
@@ -463,7 +540,7 @@ export function TabBar({ tab, onChange }) {
 export function SectionHead({ children, right }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '20px 2px 10px' }}>
-      <div className="gt-label">{children}</div>
+      <h2 className="gt-label">{children}</h2>
       {right || null}
     </div>
   );
