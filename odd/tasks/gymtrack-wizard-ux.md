@@ -65,3 +65,5 @@ Strict TDD enabled (source: user global CLAUDE.md). Runner: `npm test` (vitest r
 
 ## Next step
 Manual browser check by the user (Spanish and English device), then decide on the multiple-unfinished-workouts gap.
+
+- 2026-10-09: user authorized upload. Local repo rebuilt on origin/main (v1.7.0); commit bcc09da on branch feat/setup-wizard-ux (68 files; deploy.yml deletion and personal/tool files excluded). Pushed; PR #2 opened against main, not merged. Verification: npm test 357/31 files, build OK. Native review unavailable (gentle-ai not installed). Engram mirror still pending.
