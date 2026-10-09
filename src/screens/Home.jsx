@@ -5,16 +5,15 @@ import React, { useMemo, useState } from 'react';
 import { useStore } from '../store.js';
 import { useShallow } from 'zustand/react/shallow';
 import { exerciseHistory, pickDaily, streakInfo, trainedDates } from '../metrics.js';
-import { fmtDate, isoDate, parseISO, addDays, mondayOf, splitUnit } from '../calc.js';
+import { isoDate, addDays, mondayOf, splitUnit } from '../calc.js';
 import { GIcon, RingProgress, LineChart, Sheet, EmptyState } from '../components.jsx';
-
-const shortDate = (iso) => { const d = parseISO(iso); return (d.getMonth() + 1) + '/' + d.getDate(); };
+import { useT } from '../i18n.js';
 
 /* Weight split in two so the number can stay big and the unit small (and so a value like
  * "40 kg ×2" never wraps inside a half-width widget). */
-function unitLabel(unit, value) {
+function unitLabel(unit, value, t) {
   const { base, dbl } = splitUnit(unit);
-  if (base === 'plates') return value === 1 ? 'plate' : 'plates';
+  if (base === 'plates') return value === 1 ? t('unitWord.plate') : t('unitWord.plates');
   return base + (dbl ? ' ×2' : '');
 }
 
@@ -33,6 +32,7 @@ function Widget({ onClick, ariaLabel, icon = 'chevR', style, children }) {
 
 /* ---------- Streak sheet: consecutive training days + a dot calendar ---------- */
 function StreakSheet({ open, onClose, dates }) {
+  const { t, date, dateParts } = useT();
   const info = useMemo(() => streakInfo(dates), [dates]);
   const set = useMemo(() => new Set(dates), [dates]);
   const WEEKS = 12;
@@ -43,16 +43,16 @@ function StreakSheet({ open, onClose, dates }) {
       Array.from({ length: 7 }, (_, r) => isoDate(addDays(start, c * 7 + r))));
   }, [dates]); // eslint-disable-line react-hooks/exhaustive-deps
   const monthLabels = grid.map((week, i) => {
-    const m = parseISO(week[0]).toLocaleDateString('en-US', { month: 'short' });
-    const prev = i > 0 ? parseISO(grid[i - 1][0]).toLocaleDateString('en-US', { month: 'short' }) : null;
+    const m = dateParts(week[0], { month: 'short' });
+    const prev = i > 0 ? dateParts(grid[i - 1][0], { month: 'short' }) : null;
     return m === prev ? '' : m;
   });
   const today = isoDate();
 
   return (
-    <Sheet open={open} onClose={onClose} title="Streak">
+    <Sheet open={open} onClose={onClose} title={t('home.streak.title')}>
       <div style={{ display: 'flex', gap: 10 }}>
-        {[['Current', info.current, true], ['Best', info.best, false], ['Days', info.total, false]].map(([label, value, hot]) => (
+        {[[t('home.streak.current'), info.current, true], [t('home.streak.best'), info.best, false], [t('home.streak.days'), info.total, false]].map(([label, value, hot]) => (
           <div key={label} className="gt-card" style={{ flex: 1, padding: '14px 8px', textAlign: 'center' }}>
             <div className="gt-num" style={{ fontSize: 28, color: hot && value > 0 ? 'var(--accent)' : 'var(--text)' }}>{value}</div>
             <div className="gt-micro" style={{ marginTop: 3 }}>{label.toUpperCase()}</div>
@@ -61,13 +61,11 @@ function StreakSheet({ open, onClose, dates }) {
       </div>
       <div className="gt-sub" style={{ marginTop: 14, lineHeight: 1.5 }}>
         {info.current > 0
-          ? (info.trainedToday
-            ? `${info.current} ${info.current === 1 ? 'day' : 'days'} in a row — today is already logged.`
-            : `${info.current} ${info.current === 1 ? 'day' : 'days'} in a row. Finish a session today to keep it alive.`)
-          : (info.lastDate ? `No active streak. Last session: ${fmtDate(info.lastDate)}.` : 'Finish your first session to start a streak.')}
+          ? t(info.trainedToday ? 'home.streak.logged' : 'home.streak.keep', { n: info.current, unit: t(info.current === 1 ? 'home.streak.dayRow' : 'home.streak.daysRow') })
+          : (info.lastDate ? t('home.streak.none', { date: date(info.lastDate) }) : t('home.streak.first'))}
       </div>
 
-      <div className="gt-label" style={{ margin: '20px 0 10px' }}>Last {WEEKS} weeks</div>
+      <div className="gt-label" style={{ margin: '20px 0 10px' }}>{t('home.streak.lastWeeks', { n: WEEKS })}</div>
       <div className="gt-scroll-x" style={{ paddingBottom: 4 }}>
         <div style={{ minWidth: 260 }}>
           <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
@@ -93,7 +91,7 @@ function StreakSheet({ open, onClose, dates }) {
         </div>
       </div>
       <div className="gt-micro" style={{ marginTop: 12, lineHeight: 1.5 }}>
-        A day counts once a session is finished — the auto-finish rule (2+ sets on every exercise) counts too.
+        {t('home.streak.note')}
       </div>
     </Sheet>
   );
@@ -101,11 +99,13 @@ function StreakSheet({ open, onClose, dates }) {
 
 /* ---------- Home ---------- */
 export default function HomeScreen({ onNavigate }) {
+  const { t, date, dateParts } = useT();
+  const shortDate = (iso) => dateParts(iso, { month: 'numeric', day: 'numeric' });
   const store = useStore(useShallow((state) => ({
     period: state.period, variants: state.variants, workouts: state.workouts,
     setsByWorkout: state.setsByWorkout, exercises: state.exercises, prs: state.prs,
-    sessionInView: state.sessionInView, currentVariant: state.currentVariant,
-    variantMap: state.variantMap, cycleDone: state.cycleDone, archiveAndStartNew: state.archiveAndStartNew,
+    sessionInView: state.sessionInView, currentVariant: state.currentVariant, trainingView: state.trainingView,
+    scheduleView: state.scheduleView, variantMap: state.variantMap, cycleDone: state.cycleDone, archiveAndStartNew: state.archiveAndStartNew,
   })));
   const { period, variants, workouts, setsByWorkout, exercises, prs } = store;
   const [streakOpen, setStreakOpen] = useState(false);
@@ -114,13 +114,15 @@ export default function HomeScreen({ onNavigate }) {
   const dates = useMemo(() => trainedDates(workouts), [workouts]);
   const streak = useMemo(() => streakInfo(dates), [dates]);
 
-  const workout = store.sessionInView();
+  const configured = !!period?.trainingSchedule;
+  const view = configured ? store.trainingView() : null;
+  const workout = view ? view.workout : store.sessionInView();
   const pending = store.currentVariant();
-  const activeCode = workout ? workout.variant : pending?.code;
-  const variant = activeCode ? store.variantMap()[activeCode] : null;
-  const cycle = period?.cycle ?? 1;
+  const activeCode = view ? view.variantCode : workout ? workout.variant : pending?.code;
+  const variant = view ? view.variant : activeCode ? store.variantMap()[activeCode] : null;
+  const cycle = view ? view.cycle : period?.cycle ?? 1;
   const totalVariants = variants.length || 6;
-  const doneCount = store.cycleDone().size;
+  const doneCount = store.cycleDone(cycle).size;
   // "which session of the cycle is this" — U1 = 1 … L3 = 6. Independent of the ring,
   // which tracks how much of the cycle is already done.
   const sessionNum = variant ? variants.findIndex((v) => v.code === variant.code) + 1 : 0;
@@ -150,7 +152,7 @@ export default function HomeScreen({ onNavigate }) {
     return (
       <div className="gt-scroll" style={{ height: '100%', padding: '18px 16px 150px' }}>
         <div className="gt-card" style={{ marginTop: 40 }}>
-          <EmptyState icon="calendar" title="No active mesocycle" body="Start a mesocycle to see your dashboard." cta="Start" onCta={() => store.archiveAndStartNew()} />
+          <EmptyState icon="calendar" title={t('common.noMesocycle')} body={t('home.noMesoBody')} cta={t('common.start')} onCta={() => store.archiveAndStartNew()} />
         </div>
       </div>
     );
@@ -161,14 +163,14 @@ export default function HomeScreen({ onNavigate }) {
       {/* Header: title + settings / streak */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 18 }}>
         <div style={{ minWidth: 0 }}>
-          <h1 className="gt-h1" style={{ fontSize: 30 }}>Workouts</h1>
-          <div className="gt-sub" style={{ marginTop: 2 }}>{parseISO(isoDate()).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</div>
+          <h1 className="gt-h1" style={{ fontSize: 30 }}>{t('home.title')}</h1>
+          <div className="gt-sub" style={{ marginTop: 2 }}>{dateParts(isoDate(), { weekday: 'long', month: 'short', day: 'numeric' })}</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-          <button className="gt-iconbtn" aria-label="open settings" onClick={() => onNavigate('settings')}>
+          <button className="gt-iconbtn" aria-label={t('home.openSettings')} onClick={() => onNavigate('settings')}>
             <GIcon name="gear" size={19} />
           </button>
-          <button className="gt-iconbtn" aria-label="open streak" onClick={() => setStreakOpen(true)}
+          <button className="gt-iconbtn" aria-label={t('home.openStreak')} onClick={() => setStreakOpen(true)}
             style={{ position: 'relative', color: streak.current > 0 ? 'var(--accent)' : 'var(--text)' }}>
             <GIcon name="flame" size={19} />
             {streak.current > 0 && (
@@ -180,48 +182,48 @@ export default function HomeScreen({ onNavigate }) {
 
       {/* Row 1 — today's session · record of the day */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <Widget ariaLabel="open today" onClick={() => onNavigate('today')} style={{ minHeight: 168 }}>
+        <Widget ariaLabel={t('home.openToday')} onClick={() => onNavigate('today')} style={{ minHeight: 168 }}>
           <RingProgress value={doneCount} max={totalVariants}>
             <span className="gt-num" style={{ fontSize: 26, lineHeight: 1 }}>{sessionNum || '—'}</span>
           </RingProgress>
           <div style={{ minWidth: 0 }}>
-            <div className="gt-h2" style={{ fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{variant?.name || 'No routine'}</div>
-            <div className="gt-micro" style={{ marginTop: 2 }}>{variant ? 'Cycle ' + cycle + ' · ' + doneCount + '/' + totalVariants : 'Pick a variant'}</div>
+            <div className="gt-h2" style={{ fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{workout?.block || variant?.name || (view?.isRest ? t('home.restDay') : t('home.noRoutine'))}</div>
+            <div className="gt-micro" style={{ marginTop: 2 }}>{view?.isManual ? t('home.previewCycle', { cycle }) : variant ? t('home.cycleProgress', { cycle, done: doneCount, total: totalVariants }) : t('home.restDay')}</div>
           </div>
         </Widget>
 
         {/* the PR opens that exercise's own chart in Metrics — Records is a step further away */}
-        <Widget ariaLabel={pr ? 'open exercise metrics' : 'open records'} icon={pr ? 'chart' : 'chevR'}
+        <Widget ariaLabel={pr ? t('home.openExerciseMetrics') : t('home.openRecords')} icon={pr ? 'chart' : 'chevR'}
           onClick={() => (pr ? onNavigate('metrics', prId) : onNavigate('records'))} style={{ minHeight: 168 }}>
           {pr ? (<>
             <div style={{ paddingTop: 6 }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, flexWrap: 'wrap' }}>
                 <span className="gt-num" style={{ fontSize: 34, lineHeight: 1.05 }}>{pr.value}</span>
-                <span className="gt-sub" style={{ fontSize: 13 }}>{unitLabel(pr.unit, pr.value)}</span>
+                <span className="gt-sub" style={{ fontSize: 13 }}>{unitLabel(pr.unit, pr.value, t)}</span>
               </div>
-              <div className="gt-micro" style={{ marginTop: 4 }}>× {pr.reps} reps</div>
+              <div className="gt-micro" style={{ marginTop: 4 }}>{t('home.reps', { reps: pr.reps })}</div>
             </div>
             <div style={{ minWidth: 0 }}>
               <div className="gt-h2" style={{ fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{exMap[prId]?.name || prId}</div>
-              <div className="gt-micro" style={{ marginTop: 2 }}>PR · {fmtDate(pr.date)}</div>
+              <div className="gt-micro" style={{ marginTop: 2 }}>{t('home.prLine', { date: date(pr.date) })}</div>
             </div>
           </>) : (<>
             <div className="gt-num" style={{ fontSize: 34, color: 'var(--text-3)', paddingTop: 6 }}>—</div>
             <div>
-              <div className="gt-h2" style={{ fontSize: 15 }}>No records yet</div>
-              <div className="gt-micro" style={{ marginTop: 2 }}>Log a set to open your first PR</div>
+              <div className="gt-h2" style={{ fontSize: 15 }}>{t('home.noRecords')}</div>
+              <div className="gt-micro" style={{ marginTop: 2 }}>{t('home.firstPr')}</div>
             </div>
           </>)}
         </Widget>
       </div>
 
       {/* Row 2 — progress chart of another exercise from today's session */}
-      <Widget ariaLabel="open metrics" onClick={() => onNavigate('metrics')} icon="chart" style={{ marginTop: 12, minHeight: 236, gap: 4 }}>
+      <Widget ariaLabel={t('home.openMetrics')} onClick={() => onNavigate('metrics')} icon="chart" style={{ marginTop: 12, minHeight: 236, gap: 4 }}>
         <div style={{ paddingRight: 26 }}>
-          <div className="gt-label" style={{ color: 'var(--accent)' }}>Progress</div>
-          <div className="gt-h2" style={{ fontSize: 16, marginTop: 4 }}>{exMap[chartId || chartPlaceholder]?.name || 'Nothing tracked yet'}</div>
+          <div className="gt-label" style={{ color: 'var(--accent)' }}>{t('home.progress')}</div>
+          <div className="gt-h2" style={{ fontSize: 16, marginTop: 4 }}>{exMap[chartId || chartPlaceholder]?.name || t('home.nothingTracked')}</div>
           <div className="gt-micro" style={{ marginTop: 2 }}>
-            {chartData.length ? 'Top set per session · last ' + chartData.length : 'Log it twice and the trend shows up here'}
+            {chartData.length ? t('home.topSet', { n: chartData.length }) : t('home.logTwice')}
           </div>
         </div>
         {chartData.length >= 2 ? (

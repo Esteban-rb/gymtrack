@@ -50,7 +50,7 @@ export async function exportXLSX() {
     .filter((r) => r.w)
     .sort((a, b) => a.w.date.localeCompare(b.w.date) || a.s.id - b.s.id)
     .map(({ s, w }) => ({
-      Date: w.date, Cycle: w.cycle ?? w.week, Variant: w.variant ?? w.dayKey, Block: w.block,
+      Date: w.date, WorkoutId: w.id, Cycle: w.cycle ?? w.week, Variant: w.variant ?? w.dayKey, Block: w.block,
       Exercise: (exMap[s.exerciseId] || {}).name || s.exerciseId,
       Muscle: (exMap[s.exerciseId] || {}).muscle || '',
       Set: s.n, Value: s.value, Unit: s.unit, Reps: s.reps,
@@ -78,16 +78,22 @@ function normDate(v) {
   if (v == null || v === '') return null;
   if (typeof v === 'number') { // Excel serial date (1900 epoch)
     const d = new Date(Date.UTC(1899, 11, 30) + v * 86400000);
-    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+    return Number.isNaN(d.getTime()) ? null : `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
   }
   const s = String(v).trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-  const us = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-  if (us) {
-    const y = us[3].length === 2 ? '20' + us[3] : us[3];
-    return `${y}-${us[1].padStart(2, '0')}-${us[2].padStart(2, '0')}`;
+  let match = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) {
+    const us = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (us) match = [us[0], us[3].length === 2 ? '20' + us[3] : us[3], us[1].padStart(2, '0'), us[2].padStart(2, '0')];
   }
-  return null;
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth[month - 1]) return null;
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
 function normUnit(v, fallback = 'kg') {
@@ -118,6 +124,10 @@ export async function importXLSX(file) {
     return undefined;
   };
 
+  const present = (...names) => raw.some((row) => get(row, ...names) !== undefined);
+  const hasWorkoutIdentity = present('workoutid', 'workout id', 'sessionid', 'session id', 'session');
+  const hasStructuredIdentity = hasWorkoutIdentity || present('cycle', 'ciclo') || present('variant', 'variante');
+
   const rows = [];
   for (const r of raw) {
     const date = normDate(get(r, 'date', 'fecha'));
@@ -125,16 +135,24 @@ export async function importXLSX(file) {
     const reps = parseInt(get(r, 'reps', 'repeticiones'), 10);
     const value = parseFloat(get(r, 'value', 'weight', 'peso'));
     if (!date || !name || isNaN(reps) || isNaN(value)) continue;
+    const sourceWorkoutId = get(r, 'workoutid', 'workout id', 'sessionid', 'session id', 'session');
+    const cycle = parseInt(get(r, 'cycle', 'ciclo'), 10);
     rows.push({
       date, name, reps, value,
       unit: normUnit(get(r, 'unit', 'unidad')),
       n: parseInt(get(r, 'set', 'serie'), 10) || null,
       muscle: String(get(r, 'muscle', 'musculo') || '').trim(),
       block: String(get(r, 'block', 'bloque') || '').trim(),
+      cycle: Number.isFinite(cycle) && cycle > 0 ? cycle : null,
+      variant: String(get(r, 'variant', 'variante') || '').trim() || null,
+      sourceWorkoutId: sourceWorkoutId == null || sourceWorkoutId === '' ? null : String(sourceWorkoutId).trim(),
     });
   }
   if (!rows.length) throw new Error('No valid rows (need Date, Exercise, Value, Reps)');
-  rows.sort((a, b) => a.date.localeCompare(b.date) || (a.n || 0) - (b.n || 0));
+  rows.sort((a, b) => a.date.localeCompare(b.date)
+    || String(a.sourceWorkoutId || '').localeCompare(String(b.sourceWorkoutId || ''))
+    || String(a.variant || '').localeCompare(String(b.variant || ''))
+    || (a.n || 0) - (b.n || 0));
 
   const counts = { sets: 0, workouts: 0, exercises: 0, skipped: 0 };
   const affected = new Set();
@@ -144,7 +162,19 @@ export async function importXLSX(file) {
       db.exercises.toArray(), db.workouts.toArray(), db.sets.toArray(), db.periods.toArray(),
     ]);
     const exByName = new Map(exercises.map((e) => [e.name.toLowerCase(), e]));
-    const wByDate = new Map(workouts.map((w) => [w.date, w]));
+    const fallbackByDate = new Map();
+    const bySourceId = new Map();
+    const byStructuredIdentity = new Map();
+    const workoutIdentityKey = (r) => hasWorkoutIdentity && r.sourceWorkoutId
+      ? `source:${r.sourceWorkoutId}`
+      : (hasStructuredIdentity ? `structured:${r.date}|${r.cycle ?? ''}|${r.variant ?? ''}|${r.block || ''}` : `date:${r.date}`);
+    const existingStructuredKey = (w) => `structured:${w.date}|${w.cycle ?? ''}|${w.variant ?? ''}|${w.block || ''}`;
+    for (const w of workouts) {
+      if (!fallbackByDate.has(w.date)) fallbackByDate.set(w.date, w);
+      if (w.importSourceId != null) bySourceId.set(`source:${String(w.importSourceId)}`, w);
+      bySourceId.set(`source:${String(w.id)}`, w);
+      if (!byStructuredIdentity.has(existingStructuredKey(w))) byStructuredIdentity.set(existingStructuredKey(w), w);
+    }
     const setsByW = new Map();
     for (const s of allSets) {
       if (!setsByW.has(s.workoutId)) setsByW.set(s.workoutId, []);
@@ -180,16 +210,25 @@ export async function importXLSX(file) {
         counts.exercises++;
       }
 
-      let w = wByDate.get(r.date);
+      const key = workoutIdentityKey(r);
+      let w = key.startsWith('source:') ? bySourceId.get(key) : byStructuredIdentity.get(key);
+      if (!w && !hasStructuredIdentity) w = fallbackByDate.get(r.date);
       if (!w) {
         const p = periodFor(r.date);
+        const week = Math.max(1, weekOfPeriod(p.startDate, parseISO(r.date)));
+        const dayKey = dayKeyOf(parseISO(r.date));
         w = {
-          date: r.date, periodId: p.id, week: Math.max(1, weekOfPeriod(p.startDate, parseISO(r.date))),
-          dayKey: dayKeyOf(parseISO(r.date)), templateDay: dayKeyOf(parseISO(r.date)),
+          date: r.date, periodId: p.id, week,
+          dayKey, templateDay: dayKey,
+          cycle: r.cycle ?? week, variant: r.variant ?? dayKey,
           block: r.block || 'Imported', finished: true, entries: [],
         };
+        if (r.sourceWorkoutId) w.importSourceId = r.sourceWorkoutId;
         w.id = await db.workouts.add(w);
-        wByDate.set(r.date, w);
+        fallbackByDate.set(r.date, w);
+        byStructuredIdentity.set(existingStructuredKey(w), w);
+        if (r.sourceWorkoutId) bySourceId.set(`source:${r.sourceWorkoutId}`, w);
+        bySourceId.set(`source:${String(w.id)}`, w);
         setsByW.set(w.id, []);
         counts.workouts++;
       }
@@ -215,14 +254,43 @@ export async function importXLSX(file) {
     }
   });
 
-  // optional Bodyweight sheet (Date / Kg)
+  // optional Bodyweight sheet (Date / Kg). Merge by date without replacing history,
+  // then sync only bodyweightKg from the latest valid row across existing + imported log.
   const bwSheet = wb.Sheets['Bodyweight'];
   if (bwSheet) {
-    const existing = new Set((await db.bodyweightLog.toArray()).map((b) => b.date));
-    for (const r of XLSX.utils.sheet_to_json(bwSheet, { raw: true, defval: '' })) {
-      const date = normDate(r.Date ?? r.date);
-      const kg = parseFloat(r.Kg ?? r.kg);
-      if (date && !isNaN(kg) && !existing.has(date)) await db.bodyweightLog.add({ date, kg });
+    const bwRows = XLSX.utils.sheet_to_json(bwSheet, { raw: true, defval: '' });
+    const bwGet = (row, ...names) => {
+      for (const k of Object.keys(row)) {
+        if (names.includes(k.toLowerCase().trim())) return row[k];
+      }
+      return undefined;
+    };
+    const valid = [];
+    for (const r of bwRows) {
+      const date = normDate(bwGet(r, 'date', 'fecha'));
+      const kg = parseFloat(bwGet(r, 'kg', 'bodyweight', 'bodyweightkg', 'weight', 'peso'));
+      if (date && Number.isFinite(kg) && kg > 0) valid.push({ date, kg });
+    }
+    if (valid.length) {
+      await db.transaction('rw', [db.bodyweightLog, db.profile], async () => {
+        const existingRows = await db.bodyweightLog.toArray();
+        const existing = new Set(existingRows.map((b) => b.date));
+        for (const row of valid) {
+          if (!existing.has(row.date)) {
+            await db.bodyweightLog.add(row);
+            existingRows.push(row);
+            existing.add(row.date);
+          }
+        }
+        const mergedValid = existingRows
+          .filter((b) => normDate(b.date) && Number.isFinite(Number(b.kg)) && Number(b.kg) > 0)
+          .sort((a, b) => a.date.localeCompare(b.date));
+        const latest = mergedValid[mergedValid.length - 1];
+        if (latest) {
+          const profile = (await db.profile.get(1)) || { id: 1 };
+          await db.profile.put({ ...profile, bodyweightKg: Number(latest.kg) });
+        }
+      });
     }
   }
 

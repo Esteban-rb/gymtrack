@@ -1,7 +1,8 @@
 // GymTrack — shared UI (icons, medals, charts, tab bar, inputs), ported from the design prototype.
 import React, { useEffect, useId, useRef, useState } from 'react';
-import { BASE_UNITS, splitUnit, joinUnit, MEDALS, fmtDate } from './calc.js';
+import { BASE_UNITS, splitUnit, joinUnit } from './calc.js';
 import { useStore } from './store.js';
+import { useT } from './i18n.js';
 
 /** The Mono accent is a whole black & white system, not just a hue: the few places that
  *  paint with literal hexes (medal gradients, confetti) ask here instead of guessing. */
@@ -101,7 +102,9 @@ export function MedalBadge({ level, size = 44, animate = false }) {
 }
 
 /* ============ Progress bar ============ */
-export function ProgressBar({ value, max, label = 'Progress', height = 8, color = 'var(--accent)' }) {
+export function ProgressBar({ value, max, label, height = 8, color = 'var(--accent)' }) {
+  const { t } = useT();
+  label = label ?? t('progress.label');
   const safeMax = Math.max(0, Number(max) || 0);
   const safeValue = Math.min(safeMax, Math.max(0, Number(value) || 0));
   const pct = safeMax > 0 ? (safeValue / safeMax) * 100 : 0;
@@ -132,7 +135,9 @@ export function RingProgress({ value, max, size = 78, thickness = 5, children })
 }
 
 /* ============ Stepper (+/- buttons; the number itself is a numeric input) ============ */
-export function Stepper({ label = 'Value', value, onChange, step = 1, min = 0, format, width = 132 }) {
+export function Stepper({ label, value, onChange, step = 1, min = 0, format, width = 132 }) {
+  const { t } = useT();
+  label = label ?? t('stepper.value');
   const [text, setText] = useState(null); // null = not editing; string = live keyboard entry
   const commit = () => {
     if (text == null) return;
@@ -142,7 +147,7 @@ export function Stepper({ label = 'Value', value, onChange, step = 1, min = 0, f
   };
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'var(--input-bg)', borderRadius: 14, border: '1px solid var(--border)', height: 48, width }}>
-      <button className="gt-iconbtn" style={{ border: 'none', background: 'transparent', width: 42, height: 46 }} onClick={() => onChange(Math.max(min, +(value - step).toFixed(2)))} aria-label={'Decrease ' + label}><GIcon name="minus" size={18} /></button>
+      <button className="gt-iconbtn" style={{ border: 'none', background: 'transparent', width: 42, height: 46 }} onClick={() => onChange(Math.max(min, +(value - step).toFixed(2)))} aria-label={t('stepper.decrease', { label })}><GIcon name="minus" size={18} /></button>
       <input
         className="gt-num"
         type="text" inputMode="decimal" enterKeyHint="done"
@@ -152,32 +157,34 @@ export function Stepper({ label = 'Value', value, onChange, step = 1, min = 0, f
         onBlur={commit}
         onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
         style={{ flex: 1, minWidth: 0, textAlign: 'center', fontSize: 19, background: 'transparent', border: 'none', outline: 'none', color: 'var(--text)', padding: 0 }}
-        aria-label={label + ' value'} />
-      <button className="gt-iconbtn" style={{ border: 'none', background: 'transparent', width: 42, height: 46 }} onClick={() => onChange(+(value + step).toFixed(2))} aria-label={'Increase ' + label}><GIcon name="plus" size={18} /></button>
+        aria-label={t('stepper.valueOf', { label })} />
+      <button className="gt-iconbtn" style={{ border: 'none', background: 'transparent', width: 42, height: 46 }} onClick={() => onChange(+(value + step).toFixed(2))} aria-label={t('stepper.increase', { label })}><GIcon name="plus" size={18} /></button>
     </div>
   );
 }
 
 /* ============ Unit chips: base unit + ×2 modifier (per-side, kg/lb only) ============ */
 export function UnitChips({ value, onChange }) {
+  const { t } = useT();
   const { base, dbl } = splitUnit(value);
   return (
     <div style={{ display: 'flex', gap: 6 }}>
       {BASE_UNITS.map((u) => (
-        <button key={u} className={'gt-chip' + (base === u ? ' on' : '')} aria-pressed={base === u} onClick={() => onChange(joinUnit(u, dbl))}>{u}</button>
+        <button key={u} className={'gt-chip' + (base === u ? ' on' : '')} aria-pressed={base === u} onClick={() => onChange(joinUnit(u, dbl))}>{u === 'plates' ? t('unitChip.plates') : u}</button>
       ))}
       <button
         className={'gt-chip' + (dbl ? ' on' : '')}
         style={base === 'plates' ? { opacity: 0.35, cursor: 'default' } : undefined}
         disabled={base === 'plates'} aria-pressed={dbl}
         onClick={() => base !== 'plates' && onChange(joinUnit(base, !dbl))}
-        aria-label="per-side, doubled">×2</button>
+        aria-label={t('unitChip.perSide')}>×2</button>
     </div>
   );
 }
 
 /* ============ Bottom sheet ============ */
 export function Sheet({ open, onClose, title, children }) {
+  const { t } = useT();
   const titleId = useId();
   const panelRef = useRef(null);
   const closeRef = useRef(null);
@@ -207,13 +214,13 @@ export function Sheet({ open, onClose, title, children }) {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
       <div aria-hidden="true" onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)', animation: 'gt-fade 0.2s ease' }} />
-      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : 'Dialog'} tabIndex={-1}
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} aria-label={title ? undefined : t('common.dialog')} tabIndex={-1}
         style={{ position: 'relative', background: 'var(--sheet-bg)', borderRadius: '26px 26px 0 0', border: '1px solid var(--border)', borderBottom: 'none', padding: '12px 20px calc(34px + env(safe-area-inset-bottom))', animation: 'gt-slide-up 0.28s cubic-bezier(.2,1,.4,1)', maxHeight: '78%', display: 'flex', flexDirection: 'column' }}>
         <div style={{ width: 40, height: 4.5, borderRadius: 99, background: 'var(--border-strong)', margin: '0 auto 14px' }} />
         {title ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
             <h2 id={titleId} className="gt-h2">{title}</h2>
-            <button ref={closeRef} className="gt-iconbtn" onClick={onClose} aria-label={'close ' + title}><GIcon name="x" size={17} /></button>
+            <button ref={closeRef} className="gt-iconbtn" onClick={onClose} aria-label={t('common.closeSheet', { title })}><GIcon name="x" size={17} /></button>
           </div>
         ) : null}
         <div className="gt-scroll" style={{ flex: 1 }}>{children}</div>
@@ -223,6 +230,7 @@ export function Sheet({ open, onClose, title, children }) {
 }
 
 export function UndoToast({ message, onUndo }) {
+  const { t } = useT();
   if (!message) return null;
   return (
     <div role="status" aria-live="polite" style={{
@@ -232,7 +240,7 @@ export function UndoToast({ message, onUndo }) {
       border: '1px solid var(--border-strong)', boxShadow: 'var(--tabbar-shadow)',
     }}>
       <span className="gt-body" style={{ flex: 1 }}>{message}</span>
-      <button className="gt-btn gt-btn-ghost" style={{ minHeight: 40, padding: '0 14px' }} onClick={onUndo}>Undo</button>
+      <button className="gt-btn gt-btn-ghost" style={{ minHeight: 40, padding: '0 14px' }} onClick={onUndo}>{t('common.undo')}</button>
     </div>
   );
 }
@@ -267,7 +275,10 @@ export function useModalFocus(onClose) {
 
 /* ============ Charts (SVG) ============ */
 /* v2 chart style: straight line + soft accent area fill underneath (bars retired). */
-export function LineChart({ data, height = 120, valueKey = 'kg', labelKey = 'week', fmtLabel = (l) => 'W' + l, fmtVal = (v) => v, area = true, ariaLabel = 'Trend chart' }) {
+export function LineChart({ data, height = 120, valueKey = 'kg', labelKey = 'week', fmtLabel, fmtVal = (v) => v, area = true, ariaLabel }) {
+  const { t } = useT();
+  fmtLabel = fmtLabel ?? ((l) => t('chart.weekPrefix') + l);
+  ariaLabel = ariaLabel ?? t('chart.trend');
   const gid = useId();
   const W = 300, H = height, padX = 14, padY = 16, lblH = 16;
   if (!data.length) return null;
@@ -341,7 +352,9 @@ export function Sparkline({ data, valueKey = 'kg', width = 70, height = 26 }) {
 /* Series colors live in CSS so a theme can restyle the whole chart set — the Mono accent
  * swaps them for greys. */
 export const DONUT_COLORS = ['var(--accent)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)', 'var(--chart-6)', 'var(--chart-7)', 'var(--chart-8)'];
-export function Donut({ data, size = 130, thickness = 16, ariaLabel = 'Volume split chart' }) {
+export function Donut({ data, size = 130, thickness = 16, ariaLabel }) {
+  const { t } = useT();
+  ariaLabel = ariaLabel ?? t('chart.volumeSplit');
   const total = data.reduce((a, b) => a + b.kg, 0) || 1;
   const R = (size - thickness) / 2, C = size / 2;
   let acc = 0;
@@ -401,27 +414,28 @@ export function Confetti({ run }) {
 
 /* ============ Mesocycle-complete celebration overlay (counts cycles, not weeks) ============ */
 export function PeriodFinishOverlay({ summary, onClose }) {
+  const { t, date, fixed, medal } = useT();
   const medalTotal = summary.medals.reduce((a, b) => a + b, 0);
   const goal = summary.cycleGoal || 6;
   const done = summary.cyclesDone ?? goal;
   const { dialogRef, initialFocusRef } = useModalFocus(onClose);
   return (
-    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Mesocycle complete" tabIndex={-1}
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={t('finish.periodAria')} tabIndex={-1}
       style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'var(--bg)', display: 'flex', flexDirection: 'column', animation: 'gt-fade 0.25s ease', overflow: 'hidden' }}>
       <Confetti run={true} />
       <div className="gt-scroll" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '60px 24px 120px', position: 'relative', zIndex: 6 }}>
         <div style={{ width: 86, height: 86, borderRadius: 999, background: 'var(--accent-soft)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'gt-pop 0.55s cubic-bezier(.2,1.4,.4,1)' }}>
           <GIcon name="trophy" size={42} stroke={2} />
         </div>
-        <div className="gt-display" style={{ marginTop: 22, fontSize: 32 }}>MESOCYCLE COMPLETE</div>
+        <div className="gt-display" style={{ marginTop: 22, fontSize: 32 }}>{t('finish.periodTitle')}</div>
         <div className="gt-sub" style={{ marginTop: 8, maxWidth: 280, lineHeight: 1.5 }}>
-          {done} Upper/Lower cycles since {fmtDate(summary.startDate)}. Here's what you built.
+          {t('finish.periodSub', { done, date: date(summary.startDate) })}
         </div>
 
         {/* big cycle count */}
         <div className="gt-card" style={{ width: '100%', maxWidth: 320, marginTop: 24, padding: 20 }}>
           <div className="gt-num" style={{ fontSize: 56, lineHeight: 1, color: 'var(--accent)' }}>{done}<span style={{ fontSize: 22, color: 'var(--text-3)' }}> / {goal}</span></div>
-          <div className="gt-label" style={{ marginTop: 6 }}>Cycles completed</div>
+          <div className="gt-label" style={{ marginTop: 6 }}>{t('finish.cyclesCompleted')}</div>
           <div style={{ display: 'flex', gap: 5, marginTop: 14 }}>
             {Array.from({ length: goal }, (_, i) => (
               <div key={i} style={{ flex: 1, height: 8, borderRadius: 999, background: i < done ? 'var(--accent)' : 'var(--input-bg)' }} />
@@ -430,7 +444,7 @@ export function PeriodFinishOverlay({ summary, onClose }) {
         </div>
 
         <div style={{ display: 'flex', gap: 10, marginTop: 12, width: '100%', maxWidth: 320 }}>
-          {[['Sessions', summary.workouts], ['Sets', summary.sets], ['Tonnage', (summary.volume / 1000).toFixed(1) + 't']].map(([l, v]) => (
+          {[[t('finish.sessions'), summary.workouts], [t('finish.sets'), summary.sets], [t('finish.tonnage'), fixed(summary.volume / 1000) + 't']].map(([l, v]) => (
             <div key={l} className="gt-card" style={{ flex: 1, padding: '14px 8px' }}>
               <div className="gt-num" style={{ fontSize: 24 }}>{v}</div>
               <div className="gt-micro" style={{ marginTop: 3 }}>{l.toUpperCase()}</div>
@@ -450,7 +464,7 @@ export function PeriodFinishOverlay({ summary, onClose }) {
           const slots = top.length === 3 ? [top[1], top[0], top[2]] : top.length === 2 ? [top[1], top[0]] : top;
           return (
             <div className="gt-card" style={{ marginTop: 12, width: '100%', maxWidth: 320, padding: '16px 14px 0', overflow: 'hidden' }}>
-              <div className="gt-label" style={{ color: 'var(--accent)', marginBottom: 14 }}>Top progress</div>
+              <div className="gt-label" style={{ color: 'var(--accent)', marginBottom: 14 }}>{t('finish.topProgress')}</div>
               <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
                 {slots.map((p) => (
                   <div key={p.id} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
@@ -468,12 +482,12 @@ export function PeriodFinishOverlay({ summary, onClose }) {
 
         {medalTotal > 0 && (
           <div className="gt-card" style={{ marginTop: 12, width: '100%', maxWidth: 320, padding: '14px 16px' }}>
-            <div className="gt-label" style={{ marginBottom: 10 }}>Medal cabinet</div>
+            <div className="gt-label" style={{ marginBottom: 10 }}>{t('finish.medalCabinet')}</div>
             <div style={{ display: 'flex', justifyContent: 'space-around' }}>
               {summary.medals.map((count, lvl) => count > 0 && (
                 <div key={lvl} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
                   <MedalBadge level={lvl} size={40} />
-                  <div className="gt-micro">{count}× {MEDALS[lvl].toUpperCase()}</div>
+                  <div className="gt-micro">{count}× {medal(lvl).toUpperCase()}</div>
                 </div>
               ))}
             </div>
@@ -481,7 +495,7 @@ export function PeriodFinishOverlay({ summary, onClose }) {
         )}
       </div>
       <div style={{ position: 'absolute', left: 20, right: 20, bottom: 'calc(20px + env(safe-area-inset-bottom))', zIndex: 7 }}>
-        <button ref={initialFocusRef} className="gt-btn gt-btn-primary" style={{ width: '100%', minHeight: 54, fontSize: 16 }} onClick={onClose}>Start the next mesocycle</button>
+        <button ref={initialFocusRef} className="gt-btn gt-btn-primary" style={{ width: '100%', minHeight: 54, fontSize: 16 }} onClick={onClose}>{t('finish.nextPeriod')}</button>
       </div>
     </div>
   );
@@ -515,12 +529,13 @@ function TabIcon({ id }) {
  * en una textura aparte, y en Android esa captura salía a veces con basura de GPU sobre Today
  * — una franja de ruido que no se limpiaba hasta el siguiente repintado. */
 export function TabBar({ tab, onChange }) {
+  const { t: tr } = useT();
   return (
-    <nav aria-label="Primary" style={{ position: 'fixed', left: 14, right: 14, bottom: 'calc(14px + env(safe-area-inset-bottom))', zIndex: 40, display: 'flex', gap: 4, padding: 6, borderRadius: 999, background: 'var(--tabbar-bg)', border: '1px solid var(--border)', boxShadow: 'var(--tabbar-shadow)', maxWidth: 520, margin: '0 auto' }}>
+    <nav aria-label={tr('tab.nav')} style={{ position: 'fixed', left: 14, right: 14, bottom: 'calc(14px + env(safe-area-inset-bottom))', zIndex: 40, display: 'flex', gap: 4, padding: 6, borderRadius: 999, background: 'var(--tabbar-bg)', border: '1px solid var(--border)', boxShadow: 'var(--tabbar-shadow)', maxWidth: 520, margin: '0 auto' }}>
       {TABS.map((t) => {
         const on = tab === t.id;
         return (
-          <button key={t.id} onClick={() => onChange(t.id)} aria-label={t.label} aria-current={on ? 'page' : undefined} style={{
+          <button key={t.id} onClick={() => onChange(t.id)} aria-label={tr('tab.' + t.id)} aria-current={on ? 'page' : undefined} style={{
             flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: '8px 0 6px',
             borderRadius: 999, border: 'none', cursor: 'pointer', minHeight: 48,
             background: on ? 'var(--accent)' : 'transparent',
@@ -528,7 +543,7 @@ export function TabBar({ tab, onChange }) {
             WebkitTapHighlightColor: 'transparent',
           }}>
             <TabIcon id={t.id} />
-            <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '0.02em', fontFamily: 'Manrope' }}>{t.label}</span>
+            <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '0.02em', fontFamily: 'Manrope' }}>{tr('tab.' + t.id)}</span>
           </button>
         );
       })}

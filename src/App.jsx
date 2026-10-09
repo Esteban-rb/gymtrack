@@ -1,16 +1,18 @@
 // GymTrack — app shell: bootstrap, theme + accent, tab navigation, medal-unlock toast.
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from './store.js';
+import { useT } from './i18n.js';
 import { useShallow } from 'zustand/react/shallow';
-import { MEDALS } from './calc.js';
 import { TabBar, TABS, MedalBadge, MEDAL_COLORS, PeriodFinishOverlay } from './components.jsx';
 import HomeScreen from './screens/Home.jsx';
 import TodayScreen from './screens/Today.jsx';
 import MetricsScreen from './screens/Metrics.jsx';
 import RecordsScreen from './screens/Records.jsx';
 import SettingsScreen from './screens/Settings.jsx';
+import SetupWizard from './screens/SetupWizard.jsx';
 
 function MedalToast() {
+  const { t, medal } = useT();
   const { medalUnlock, dismissMedal } = useStore(useShallow((state) => ({ medalUnlock: state.medalUnlock, dismissMedal: state.dismissMedal })));
   useEffect(() => {
     if (!medalUnlock) return;
@@ -24,7 +26,7 @@ function MedalToast() {
       <div className="gt-card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 18px', maxWidth: 420, width: '100%' }}>
         <MedalBadge level={medalUnlock.level} size={52} animate={true} />
         <div>
-          <div className="gt-label" style={{ color: MEDAL_COLORS[medalUnlock.level] }}>{MEDALS[medalUnlock.level]} unlocked</div>
+          <div className="gt-label" style={{ color: MEDAL_COLORS[medalUnlock.level] }}>{t('medal.unlocked', { medal: medal(medalUnlock.level) })}</div>
           <div className="gt-body" style={{ fontWeight: 800, marginTop: 2 }}>{medalUnlock.exercise?.name}</div>
         </div>
       </div>
@@ -33,9 +35,13 @@ function MedalToast() {
 }
 
 export default function App() {
+  const { t } = useT();
   const store = useStore(useShallow((state) => ({
     loaded: state.loaded,
     profile: state.profile,
+    setupStatus: state.setupStatus,
+    skipSetup: state.skipSetup,
+    reopenSetup: state.reopenSetup,
     init: state.init,
     periodCelebration: state.periodCelebration,
     dismissPeriodCelebration: state.dismissPeriodCelebration,
@@ -50,12 +56,49 @@ export default function App() {
   // Home can jump straight to one exercise's chart in Metrics. The counter makes the object
   // identity change on every jump, so asking for the same exercise twice still re-focuses it.
   const [metricsFocus, setMetricsFocus] = useState(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [setupActionBusy, setSetupActionBusy] = useState(false);
+  const [setupActionError, setSetupActionError] = useState('');
+  const [setupDone, setSetupDone] = useState(false);
+  const setupActionRef = useRef(false);
   const navigate = (next, exerciseId) => {
     if (exerciseId) setMetricsFocus((p) => ({ id: exerciseId, n: (p?.n || 0) + 1 }));
     setTab(next);
   };
   useEffect(() => { store.init(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { try { localStorage.setItem('gymtrack_tab', tab); } catch { /* private mode */ } }, [tab]);
+
+  const runSetupAction = async (action) => {
+    if (setupActionRef.current) return;
+    setupActionRef.current = true;
+    setSetupActionBusy(true);
+    setSetupActionError('');
+    try {
+      if (action === 'skip') await store.skipSetup();
+      else {
+        await store.reopenSetup();
+        setWizardOpen(true);
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : t('skip.retry');
+      setSetupActionError(action === 'skip' ? t('skip.error', { detail }) : t('invite.reopenError', { detail }));
+    } finally {
+      setupActionRef.current = false;
+      setSetupActionBusy(false);
+    }
+  };
+  const closeOptionalWizard = () => {
+    if (useStore.getState().setupStatus === 'first-run-required') return;
+    setWizardOpen(false);
+  };
+  const completeWizard = async (result) => {
+    if (result?.status === 'applied') { setWizardOpen(false); setSetupDone(true); }
+  };
+  useEffect(() => {
+    if (!setupDone) return undefined;
+    const timer = setTimeout(() => setSetupDone(false), 6000);
+    return () => clearTimeout(timer);
+  }, [setupDone]);
 
   const dark = store.profile?.theme !== 'light';
   // 'mono' is not a hue but a whole black & white system → a class, not --accent vars
@@ -91,8 +134,17 @@ export default function App() {
       <div className="gt-app" role="status" aria-live="polite" style={{ position: 'fixed', inset: 0, display: 'grid', placeItems: 'center' }}>
         <div style={{ textAlign: 'center' }}>
           <div className="gt-display" style={{ fontSize: 28 }}>GYMTRACK</div>
-          <div className="gt-micro" style={{ marginTop: 8 }}>Loading your training data…</div>
+          <div className="gt-micro" style={{ marginTop: 8 }}>{t('app.loading')}</div>
         </div>
+      </div>
+    );
+  }
+
+  const setupRequired = store.setupStatus === 'first-run-required';
+  if (setupRequired || wizardOpen) {
+    return (
+      <div className={'gt-app' + (dark ? '' : ' light') + (mono ? ' mono' : '')} style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', ...accentVars }}>
+        <SetupWizard onComplete={completeWizard} onClose={!setupRequired ? closeOptionalWizard : undefined} />
       </div>
     );
   }
@@ -100,13 +152,29 @@ export default function App() {
   return (
     <div className={'gt-app' + (dark ? '' : ' light') + (mono ? ' mono' : '')} style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', ...accentVars }}>
       <div style={{ flex: 1, minHeight: 0, position: 'relative', maxWidth: 520, width: '100%', margin: '0 auto', paddingTop: 'env(safe-area-inset-top)' }}>
+        {store.setupStatus === 'invite-existing' ? <section aria-label={t('invite.region')} className="gt-card" style={{ position: 'absolute', zIndex: 30, top: 12, left: 16, right: 16, padding: 14 }}>
+          <h2 className="gt-h2">{t('invite.title')}</h2>
+          <p className="gt-sub">{t('invite.body')}</p>
+          {setupActionError ? <p role="alert" aria-live="assertive">{setupActionError}</p> : null}
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button type="button" className="gt-btn gt-btn-primary" disabled={setupActionBusy} aria-busy={setupActionBusy} onClick={() => runSetupAction('reopen')}>{setupActionBusy ? t('invite.opening') : t('invite.now')}</button>
+            <button type="button" className="gt-btn gt-btn-ghost" disabled={setupActionBusy} onClick={() => runSetupAction('skip')}>{t('invite.later')}</button>
+          </div>
+        </section> : null}
+        {store.setupStatus !== 'invite-existing' && setupActionError ? <p role="alert" aria-live="assertive" style={{ position: 'absolute', zIndex: 30, top: 12, left: 16, right: 16 }}>{setupActionError}</p> : null}
         {tab === 'home' && <HomeScreen onNavigate={navigate} />}
         {tab === 'today' && <TodayScreen />}
         {tab === 'metrics' && <MetricsScreen focus={metricsFocus} />}
         {tab === 'records' && <RecordsScreen />}
-        {tab === 'settings' && <SettingsScreen />}
+        {tab === 'settings' && <SettingsScreen onSetup={() => runSetupAction('reopen')} setupOpening={setupActionBusy} />}
       </div>
       <TabBar tab={tab} onChange={setTab} />
+      {setupDone ? (
+        <div role="status" aria-live="polite" className="gt-card" style={{ position: 'fixed', left: 16, right: 16, top: 'calc(16px + env(safe-area-inset-top))', zIndex: 70, maxWidth: 420, margin: '0 auto', padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <span className="gt-body" style={{ fontWeight: 700 }}>{t('complete.toast')}</span>
+          <button type="button" className="gt-btn gt-btn-ghost" onClick={() => setSetupDone(false)}>{t('complete.toastDismiss')}</button>
+        </div>
+      ) : null}
       <MedalToast />
       {store.periodCelebration ? <PeriodFinishOverlay summary={store.periodCelebration} onClose={store.dismissPeriodCelebration} /> : null}
     </div>

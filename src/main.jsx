@@ -8,6 +8,7 @@ import '@fontsource/oswald/latin-500.css';
 import '@fontsource/oswald/latin-600.css';
 import './styles.css';
 import App from './App.jsx';
+import { I18nProvider, detectLocale } from './i18n.js';
 import { registerSW } from 'virtual:pwa-register';
 
 registerSW({ immediate: true });
@@ -23,4 +24,4 @@ const fatal = (msg) => {
 window.addEventListener('error', (e) => fatal(e.message + '\n' + (e.error?.stack || '')));
 window.addEventListener('unhandledrejection', (e) => fatal('rejection: ' + (e.reason?.stack || e.reason)));
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+ReactDOM.createRoot(document.getElementById('root')).render(<I18nProvider locale={detectLocale()}><App /></I18nProvider>);

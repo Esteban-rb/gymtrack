@@ -95,11 +95,11 @@ const NEW_EXERCISES = [
   { id: 'leg-curl',    name: 'Leg Curl',                      muscle: 'Hamstrings', unit: 'kg' },
 ];
 
-const ALL_EXERCISES = [...SEED_EXERCISES, ...NEW_EXERCISES];
-
+export const ALL_EXERCISES = [...SEED_EXERCISES, ...NEW_EXERCISES].map((e, i) => ({ isBasic: false, standards: null, active: true, order: i, ...e }));
+export const SEED_PROFILE = { id: 1, age: 18, bodyweightKg: 70, theme: 'dark' };
 /* The 6 rotation variants (Esteban's Upper/Lower). `code` is the stable id,
  * `order` drives the rotation sequence U1→L1→U2→L2→U3→L3. `name` is the display block. */
-const SEED_VARIANTS = [
+export const SEED_VARIANTS = [
   { code: 'U1', order: 0, name: 'Upper 1', kind: 'Upper', exerciseIds: ['lat-pulldown', 'gironda', 'incline-press', 'chest-fly', 'hammer', 'tri-ext'] },
   { code: 'L1', order: 1, name: 'Lower 1', kind: 'Lower', exerciseIds: ['calf-raise', 'abductors', 'hack-squat', 'lying-curl', 'leg-ext', 'abs'] },
   { code: 'U2', order: 2, name: 'Upper 2', kind: 'Upper', exerciseIds: ['military', 'inc-seated', 'pull-over', 'rear-delt', 'incline-curl', 'katana'] },
@@ -111,16 +111,18 @@ const SEED_VARIANTS = [
 export const MUSCLES = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs'];
 
 /** Seed catalog, rotation variants, profile and an active period on first run. */
+export const SEED_PERIOD = { startDate: null, cycleGoal: 6, status: 'active', rotationPos: 0, cycle: 1 };
+
 export async function ensureSeeded() {
   const profile = await db.profile.get(1);
   if (profile) return;
   await db.transaction('rw', [db.profile, db.exercises, db.routineVariants, db.periods], async () => {
-    await db.profile.put({ id: 1, age: 18, bodyweightKg: 70, theme: 'dark' });
+    await db.profile.put({ ...SEED_PROFILE });
     await db.exercises.bulkPut(ALL_EXERCISES.map((e, i) => ({
       isBasic: false, standards: null, active: true, order: i, ...e,
     })));
     await db.routineVariants.bulkPut(SEED_VARIANTS);
     // A period measured in cycles (one full U1→L3 rotation). Pointer starts at U1, cycle 1.
-    await db.periods.add({ startDate: isoDate(mondayOf(new Date())), cycleGoal: 6, status: 'active', rotationPos: 0, cycle: 1 });
+    await db.periods.add({ ...SEED_PERIOD, startDate: isoDate(mondayOf(new Date())) });
   });
 }

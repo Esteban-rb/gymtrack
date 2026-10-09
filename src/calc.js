@@ -31,15 +31,18 @@ export function toKg(value, unit) {
 }
 
 /** Display the value exactly as the user entered it. */
-export function fmtWeight(value, unit) {
+export function fmtWeight(value, unit, locale = 'en') {
   if (value == null) return '—';
-  const n = Number.isInteger(value) ? value : +value.toFixed(2);
+  const rounded = Number.isInteger(value) ? value : +value.toFixed(2);
+  // English keeps the plain JS number; other locales get their own decimal separator.
+  const n = locale === 'en' ? rounded : new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(rounded);
   const { base, dbl } = splitUnit(unit);
   const tail = dbl ? ' ×2' : '';
+  const plate = locale === 'es' ? [' disco', ' discos'] : [' plate', ' plates'];
   switch (base) {
     case 'kg': return n + ' kg' + tail;
     case 'lb': return n + ' lb' + tail;
-    case 'plates': return n + (n === 1 ? ' plate' : ' plates');
+    case 'plates': return n + (rounded === 1 ? plate[0] : plate[1]);
     default: return String(n) + tail;
   }
 }
@@ -121,13 +124,21 @@ export function addDays(d, n) {
   return x;
 }
 
-export function fmtDate(iso) {
-  return parseISO(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+/** Display locale tag for a UI locale ('en' keeps the original en-US formatting). */
+export const intlLocale = (locale = 'en') => (locale === 'en' ? 'en-US' : locale);
+
+export function fmtDate(iso, locale = 'en') {
+  return parseISO(iso).toLocaleDateString(intlLocale(locale), { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 /** Default overload suggestion: +bump weight or +1 rep over last week's top set. */
-export function suggestOverload(topSet) {
+export function overloadTarget(topSet) {
   if (!topSet) return null;
   const bump = splitUnit(topSet.unit).base === 'plates' ? 0.25 : 2.5;
-  return 'Try ' + fmtWeight(+(topSet.value + bump).toFixed(2), topSet.unit) + ' or +1 rep';
+  return { value: +(topSet.value + bump).toFixed(2), unit: topSet.unit };
+}
+
+export function suggestOverload(topSet) {
+  const target = overloadTarget(topSet);
+  return target ? 'Try ' + fmtWeight(target.value, target.unit) + ' or +1 rep' : null;
 }

@@ -8,12 +8,20 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 import { LineChart } from './components.jsx';
+import { db, ensureSeeded } from './db.js';
 import { useStore } from './store.js';
 
 // jsdom has no canvas: give Confetti a no-op 2D context
-beforeAll(() => {
+beforeAll(async () => {
   HTMLCanvasElement.prototype.getContext = () => new Proxy({}, { get: () => () => {} });
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  await db.delete(); await db.open(); await ensureSeeded();
+  // A valid existing user who dismissed setup keeps the legacy app-shell smoke path active.
+  await db.profile.update(1, {
+    name: 'GymTrack historical smoke user', sex: 'prefer_not_to_say', heightCm: 170,
+    setupRequired: false, setupSkipped: true, preferences: { units: 'kg' },
+  });
+  useStore.setState({ loaded: false });
 });
 
 const text = () => document.body.textContent || '';
