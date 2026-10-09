@@ -1,10 +1,32 @@
 // GymTrack — global state (Zustand) hydrated from Dexie; every mutation writes through to IndexedDB.
 import { create } from 'zustand';
+import { validateProfileDraft, hasRealTrainingData, getSetupStatus } from './setup.js';
+import { validateRoutineDraft } from './routine-draft.js';
+import { advanceIndependentSchedule, selectScheduledVariant } from './schedule.js';
+import { validateSchedule } from './schedule.js';
 import { db, ensureSeeded } from './db.js';
-import { toKg, est1RM, isoDate, mondayOf, weekOfPeriod, dayKeyOf, medalForStandards, medalForProgression } from './calc.js';
+import { toKg, est1RM, isoDate, parseISO, mondayOf, weekOfPeriod, dayKeyOf, medalForStandards, medalForProgression } from './calc.js';
 import { bestSet, dayPRs, buildLogs, dayVolume, entryForWorkout, workoutsDone, cycleVolume, exerciseSeries, shouldAutoFinish } from './metrics.js';
 
 const sortByOrder = (a, b) => (a.order ?? 0) - (b.order ?? 0);
+const configuredCode = (period, date) => {
+  if (!period?.trainingSchedule) return null;
+  return selectScheduledVariant(period.trainingSchedule, { date, rotationPos: period.rotationPos }).variant;
+};
+const weeklyCycle = (period, date) => {
+  if (period?.trainingSchedule?.mode !== 'weekly' || !period.startDate) return period?.cycle ?? 1;
+  const mondayOrdinal = (iso) => {
+    const [year, month, day] = iso.split('-').map(Number);
+    const value = new Date(Date.UTC(year, month - 1, day));
+    value.setUTCDate(value.getUTCDate() - ((value.getUTCDay() + 6) % 7));
+    return Math.floor(value.getTime() / 86400000);
+  };
+  return Math.max(1, Math.floor((mondayOrdinal(date) - mondayOrdinal(period.startDate)) / 7) + 1);
+};
+const variantForSchedule = (period, variants, date) => {
+  const code = configuredCode(period, date);
+  return code == null ? null : variants.find((variant) => variant.code === code) || null;
+};
 
 const setMutationQueues = new Map();
 const serializeSetMutation = (workoutId, mutation) => {
@@ -25,12 +47,16 @@ export const useStore = create((set, get) => ({
   period: null,          // active period
   allPeriods: [],
   exercises: [],         // sorted by order, includes inactive
-  variants: [],          // rotation variants sorted by order: [{ code, order, name, kind, exerciseIds }]
+  variants: [],          // active period variants; retained definitions remain in allVariants
+  allVariants: [],
+  activeVariant: null,
+  scheduleView: null, // ephemeral configured-plan browse selection; never persisted
   templates: {},         // legacy day -> { day, block, exerciseIds } (unused by the rotation UI)
   workouts: [],
   setsByWorkout: {},     // workoutId -> set rows
   bodyweight: [],        // sorted by date asc
   prs: {},               // exerciseId -> personalRecords row
+  setupStatus: 'first-run-required',
   medalUnlock: null,     // transient: { exercise, level }
   periodCelebration: null, // transient: summary of the period just archived
 
@@ -53,13 +79,31 @@ export const useStore = create((set, get) => ({
     window.__gt_trace = 'init:loaded-tables';
     const setsByWorkout = {};
     for (const s of sets) (setsByWorkout[s.workoutId] = setsByWorkout[s.workoutId] || []).push(s);
+    const setupData = {
+      profile, periods: allPeriods, exercises, routineVariants: variantRows,
+      workouts, sets, bodyweightLog: bodyweight, personalRecords: prRows,
+    };
+    const active = allPeriods.find((p) => p.status === 'active') || null;
+    const ownedCodes = new Set(allPeriods.filter((p) => p.routineRevision).flatMap((p) => p.routineVariantCodes || []));
+    const activeVariants = active?.routineVariantCodes?.length
+      ? variantRows.filter((v) => active.routineVariantCodes.includes(v.code))
+      : variantRows.filter((v) => !v.ownerPeriodId && !ownedCodes.has(v.code));
     set({
+      setupStatus: getSetupStatus({
+        markers: { complete: profile?.setupComplete, required: profile?.setupRequired, skipped: profile?.setupSkipped, invitation: profile?.setupInvitation },
+        hasRealData: hasRealTrainingData(setupData),
+      }),
       loaded: true,
       profile,
       allPeriods,
-      period: allPeriods.find((p) => p.status === 'active') || null,
+      period: active,
       exercises: exercises.sort(sortByOrder),
-      variants: variantRows.sort(sortByOrder),
+      variants: activeVariants.sort(sortByOrder),
+      allVariants: variantRows.sort(sortByOrder),
+      activeVariant: active?.trainingSchedule
+        ? variantForSchedule(active, activeVariants, isoDate())
+        : activeVariants[active?.rotationPos || 0] || null,
+      scheduleView: null,
       templates: Object.fromEntries(templateRows.map((t) => [t.day, t])),
       workouts,
       setsByWorkout,
@@ -73,12 +117,16 @@ export const useStore = create((set, get) => ({
 
   /* ---------------- rotation ---------------- */
   /** The variant queued next in the rotation (the one Today shows by default). */
-  currentVariant: () => {
+  currentVariant: (date = isoDate()) => {
     const { period, variants } = get();
     if (!variants.length) return null;
+    if (period?.trainingSchedule) return variantForSchedule(period, variants, date);
     const pos = ((period?.rotationPos ?? 0) % variants.length + variants.length) % variants.length;
     return variants[pos];
   },
+
+  /** Effective cycle for a calendar date. Weekly plans advance by Mondays, not attendance. */
+  effectiveCycle: (date = isoDate()) => weeklyCycle(get().period, date),
 
   /** Variants finished in a cycle (defaults to the active one, for the x/6 progress ring).
    *  Returns a Set of codes. */
@@ -86,7 +134,7 @@ export const useStore = create((set, get) => ({
     const { period, workouts } = get();
     const done = new Set();
     if (!period) return done;
-    const target = cycle ?? period.cycle ?? 1;
+    const target = cycle ?? get().effectiveCycle();
     for (const w of workouts) {
       if (w.periodId === period.id && w.finished && (w.cycle ?? 1) === target) done.add(w.variant);
     }
@@ -97,8 +145,18 @@ export const useStore = create((set, get) => ({
    *  variants were still pending. An unfinished session today follows the pointer
    *  (keeping its variant and sets); a finished one is left where it is. */
   setActiveCycle: async (cycle) => {
-    const { period, variants } = get();
-    if (!period || !variants.length || cycle < 1 || cycle === (period.cycle ?? 1)) return;
+    const { period, variants, scheduleView } = get();
+    if (!period || !variants.length) return;
+    if (period.trainingSchedule) {
+      if (!Number.isInteger(cycle) || cycle < 1) return;
+      const view = scheduleView?.periodId === period.id ? scheduleView : null;
+      const variantCode = variants.some((variant) => variant.code === view?.variantCode)
+        ? view.variantCode : get().currentVariant()?.code || period.routineVariantCodes?.[0];
+      if (!variants.some((variant) => variant.code === variantCode)) return;
+      set({ scheduleView: { periodId: period.id, cycle, variantCode } });
+      return;
+    }
+    if (cycle < 1 || cycle === (period.cycle ?? 1)) return;
     const existing = get().todayWorkout();
     const keep = existing && !existing.finished;   // la sesión en curso conserva su variante
     const patch = { cycle };
@@ -121,6 +179,13 @@ export const useStore = create((set, get) => ({
   setActiveVariant: async (variantCode) => {
     const idx = get().variants.findIndex((v) => v.code === variantCode);
     if (idx < 0) return;
+    const { period, scheduleView } = get();
+    if (period?.trainingSchedule) {
+      if (!(period.routineVariantCodes || []).includes(variantCode)) return;
+      const view = scheduleView?.periodId === period.id ? scheduleView : null;
+      set({ scheduleView: { periodId: period.id, cycle: view?.cycle || get().effectiveCycle(), variantCode } });
+      return;
+    }
     await get().updatePeriod({ rotationPos: idx });
     if (get().sessionFor(variantCode)) return;   // ya entrenada: se abre en modo consulta
     const existing = get().todayWorkout();
@@ -134,11 +199,86 @@ export const useStore = create((set, get) => ({
     }
   },
 
+  clearScheduleView: () => set({ scheduleView: null }),
+
   /* ---------------- profile / theme ---------------- */
   updateProfile: async (patch) => {
     const profile = { ...get().profile, ...patch };
     await db.profile.put(profile);
     set({ profile });
+  },
+
+  /** Explicit, validated setup save. Signature: saveSetupProfile(profileDraft) -> profile. */
+  saveSetupProfile: async (draft) => {
+    const result = validateProfileDraft(draft);
+    if (!result.valid) throw Object.assign(new Error('Invalid setup profile'), { errors: result.errors });
+    const old = get().profile || { id: 1 };
+    const profile = { ...old, ...result.profile, setupSkipped: false };
+    const priorWeight = old.bodyweightKg;
+    const weightChanged = priorWeight !== profile.bodyweightKg;
+    const logRows = await db.bodyweightLog.toArray();
+    const today = isoDate();
+    const bodyweight = [...logRows.filter((row) => row.date !== today), { ...(logRows.find((row) => row.date === today) || {}), date: today, kg: profile.bodyweightKg }].sort((a, b) => a.date.localeCompare(b.date));
+    const workouts = get().workouts;
+    const dateByWorkout = new Map(workouts.map((workout) => [workout.id, workout.date]));
+    const sets = weightChanged ? await db.sets.toArray() : [];
+    const grouped = new Map();
+    for (const row of sets) if (dateByWorkout.has(row.workoutId)) {
+      const list = grouped.get(row.exerciseId) || []; list.push({ ...row, date: dateByWorkout.get(row.workoutId) }); grouped.set(row.exerciseId, list);
+    }
+    const prRows = [...grouped].map(([exerciseId, dated]) => {
+      dated.sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+      const firstDate = dated[0].date;
+      const baselineKg = Math.max(...dated.filter((row) => row.date === firstDate).map((row) => row.realKg));
+      let best = dated[0];
+      for (const row of dated) if (row.realKg > best.realKg || (row.realKg === best.realKg && row.reps > best.reps)) best = row;
+      return { exerciseId, kg: best.realKg, reps: best.reps, value: best.value, unit: best.unit, date: best.date, oneRm: +est1RM(best.realKg, best.reps).toFixed(1), baselineKg };
+    });
+    const { committedBodyweight, committedPrRows, committedProfile } = await db.transaction('rw', db.profile, db.periods, db.exercises, db.routineVariants, db.workouts, db.sets, db.bodyweightLog, db.personalRecords, async () => {
+      const [currentProfile, periods, exercises, routineVariants, currentWorkouts, currentSets, bodyweightLog, personalRecords] = await Promise.all([
+        db.profile.get(1), db.periods.toArray(), db.exercises.toArray(), db.routineVariants.toArray(),
+        db.workouts.toArray(), db.sets.toArray(), db.bodyweightLog.toArray(), db.personalRecords.toArray(),
+      ]);
+      const wasSeedOnly = !hasRealTrainingData({ profile: currentProfile, periods, exercises, routineVariants, workouts: currentWorkouts, sets: currentSets, bodyweightLog, personalRecords });
+      // a user who explicitly skipped (or was invited) must not be pushed back into the required first-run gate
+      const optedOut = currentProfile?.setupSkipped === true || currentProfile?.setupInvitation === true;
+      const nextProfile = optedOut && wasSeedOnly && currentProfile?.setupRequired !== true
+        ? { ...profile, setupInvitation: true, setupRequired: false }
+        : { ...profile, setupRequired: currentProfile?.setupRequired === true || wasSeedOnly ? true : currentProfile?.setupRequired };
+      await db.profile.put(nextProfile);
+      const todayRow = logRows.find((row) => row.date === today);
+      if (todayRow) await db.bodyweightLog.put({ ...todayRow, kg: profile.bodyweightKg });
+      else await db.bodyweightLog.add({ date: today, kg: profile.bodyweightKg });
+      if (weightChanged) await db.personalRecords.bulkPut(prRows);
+      return {
+        committedProfile: await db.profile.get(1),
+        committedBodyweight: await db.bodyweightLog.orderBy('date').toArray(),
+        committedPrRows: weightChanged ? await db.personalRecords.toArray() : null,
+      };
+    });
+    set((state) => ({ profile: committedProfile, bodyweight: committedBodyweight, prs: weightChanged ? Object.fromEntries(committedPrRows.map((row) => [row.exerciseId, row])) : state.prs }));
+    return committedProfile;
+  },
+
+  /** Signature: skipSetup() -> status; an explicit skip (first run or invitation) is persisted and clears the required marker. */
+  skipSetup: async () => {
+    const profile = { ...get().profile, setupSkipped: true, setupInvitation: false, setupRequired: false };
+    await db.profile.put(profile);
+    set({ profile, setupStatus: 'skipped' });
+    return 'skipped';
+  },
+
+  /** Signature: reopenSetup() -> status; clears skip/invitation without marking completion. */
+  reopenSetup: async () => {
+    const wasSkipped = get().profile?.setupSkipped === true;
+    const hasRealData = hasRealTrainingData({ profile: get().profile, periods: get().allPeriods, exercises: get().exercises, routineVariants: get().variants, workouts: get().workouts, sets: Object.values(get().setsByWorkout).flat(), bodyweightLog: get().bodyweight, personalRecords: Object.values(get().prs) });
+    // a seed-only user who skipped keeps an optional (closable) wizard: persist an invitation instead of re-gating first run
+    const invitation = wasSkipped && !hasRealData && get().profile?.setupRequired !== true;
+    const profile = { ...get().profile, setupSkipped: false, setupInvitation: invitation };
+    await db.profile.put(profile);
+    const status = getSetupStatus({ markers: { complete: profile.setupComplete, required: profile.setupRequired, invitation }, hasRealData });
+    set({ profile, setupStatus: status });
+    return status;
   },
 
   addBodyweight: async (kg, date = isoDate()) => {
@@ -185,15 +325,118 @@ export const useStore = create((set, get) => ({
     return { cycleGoal: period.cycleGoal || 6, cyclesDone, startDate: period.startDate, workouts: workoutsDone(logs), sets, volume, gains: gains.slice(0, 3), medals };
   },
 
+  applyReviewedRoutine: async (draft, schedule, { cycleGoal = get().period?.cycleGoal ?? 6, resolution } = {}) => {
+    if (resolution === 'cancel') return { status: 'cancelled', cancelled: true };
+    if (!Number.isInteger(cycleGoal) || cycleGoal < 4 || cycleGoal > 8) throw new Error('Mesocycle goal must be an integer from 4 to 8');
+    const callerPeriod = get().period;
+    const result = await db.transaction('rw', db.profile, db.periods, db.workouts, db.exercises, db.routineVariants, async () => {
+      const [profile, periods, workouts, exercises, variants] = await Promise.all([
+        db.profile.get(1), db.periods.toArray(), db.workouts.toArray(), db.exercises.toArray(), db.routineVariants.toArray(),
+      ]);
+      const active = periods.filter((period) => period.status === 'active');
+      if (!callerPeriod || active.length !== 1 || active[0].id !== callerPeriod.id || JSON.stringify(active[0]) !== JSON.stringify(callerPeriod)) throw new Error('Active period state conflicts with database');
+      const currentWorkouts = workouts.filter((workout) => workout.periodId === callerPeriod.id);
+      const unfinished = currentWorkouts.filter((workout) => !workout.finished);
+      if (unfinished.length > 1 && resolution !== 'restart') throw new Error('Multiple unfinished workouts in active period');
+      if (unfinished.length === 1 && resolution !== 'restart') throw new Error('Unfinished workout requires explicit resolution: restart');
+      const checkedProfile = validateProfileDraft(profile);
+      if (!checkedProfile.valid) throw Object.assign(new Error('Invalid saved setup profile'), { errors: checkedProfile.errors });
+      const checkedDraft = validateRoutineDraft(draft, exercises);
+      if (!checkedDraft.valid) throw Object.assign(new Error('Invalid reviewed routine draft'), { errors: checkedDraft.errors });
+      const checkedSchedule = validateSchedule(schedule, checkedDraft.draft.variants.map((variant) => variant.code));
+      if (!checkedSchedule.valid) throw Object.assign(new Error('Invalid reviewed routine schedule'), { errors: checkedSchedule.errors });
+
+      let targetPeriod = callerPeriod;
+      if (currentWorkouts.length) {
+        const archived = { ...callerPeriod, status: 'archived', endDate: isoDate() };
+        await db.periods.put(archived);
+        if (unfinished.length) await db.workouts.bulkPut(unfinished.map((workout) => ({ ...workout, finished: true, closeReason: 'mesocycle-restart' })));
+        const fresh = { startDate: isoDate(mondayOf(new Date())), cycleGoal, status: 'active', rotationPos: 0, cycle: 1 };
+        fresh.id = await db.periods.add(fresh);
+        targetPeriod = fresh;
+      }
+      const usedCodes = new Set(variants.map((variant) => variant.code));
+      const revision = (targetPeriod.routineRevision || 0) + 1;
+      const codeMap = new Map();
+      for (const variant of checkedDraft.draft.variants) {
+        const base = `${variant.code}@p${targetPeriod.id}r${revision}`;
+        let code = base, suffix = 1;
+        while (usedCodes.has(code)) code = `${base}-${suffix++}`;
+        usedCodes.add(code); codeMap.set(variant.code, code);
+      }
+      const newByKey = new Map();
+      let newOrder = exercises.reduce((max, exercise) => Math.max(max, exercise.order ?? -1), -1) + 1;
+      for (const variant of checkedDraft.draft.variants) for (const entry of variant.exercises) {
+        if (entry.ref.type !== 'new' || newByKey.has(entry.ref.key)) continue;
+        const base = `custom-${targetPeriod.id}-${revision}-${entry.ref.key.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'exercise'}`;
+        let id = base, suffix = 1;
+        while (exercises.some((exercise) => exercise.id === id) || [...newByKey.values()].some((exercise) => exercise.id === id)) id = `${base}-${suffix++}`;
+        newByKey.set(entry.ref.key, { id, name: entry.name, muscle: entry.muscle, unit: entry.unit, isBasic: false, standards: null, active: true, order: newOrder++ });
+      }
+      const createdExercises = [...newByKey.values()];
+      const createdVariants = checkedDraft.draft.variants.map((variant) => {
+        const exerciseUnits = {};
+        const exerciseIds = variant.exercises.map((entry) => {
+          const exercise = entry.ref.type === 'catalog'
+            ? exercises.find((item) => item.id === entry.ref.id)
+            : newByKey.get(entry.ref.key);
+          exerciseUnits[exercise.id] = entry.unit;
+          return exercise.id;
+        });
+        return { code: codeMap.get(variant.code), order: variant.order, name: variant.name, kind: variant.kind, exerciseIds, exerciseUnits, ownerPeriodId: targetPeriod.id };
+      });
+      let mappedSchedule;
+      if (schedule.mode === 'independent') mappedSchedule = { ...schedule, rotation: schedule.rotation.map((code) => codeMap.get(code)) };
+      else mappedSchedule = { ...schedule, week: Object.fromEntries(Object.entries(schedule.week).map(([day, code]) => [day, code == null ? null : codeMap.get(code)])) };
+      const nextProfile = { ...profile, setupComplete: true, setupRequired: false, setupSkipped: false };
+      const nextPeriod = { ...targetPeriod, cycleGoal, cycle: 1, rotationPos: 0, routineVariantCodes: createdVariants.map((variant) => variant.code), trainingSchedule: mappedSchedule, routineRevision: revision };
+      if (createdExercises.length) await db.exercises.bulkAdd(createdExercises);
+      await db.routineVariants.bulkAdd(createdVariants);
+      await db.periods.put(nextPeriod);
+      await db.profile.put(nextProfile);
+      const [committedProfile, committedPeriods, committedExercises, committedVariants, committedWorkouts] = await Promise.all([
+        db.profile.get(1), db.periods.toArray(), db.exercises.toArray(), db.routineVariants.toArray(), db.workouts.toArray(),
+      ]);
+      const committedPeriod = committedPeriods.find((period) => period.id === nextPeriod.id);
+      const activeVariants = committedVariants.filter((variant) => committedPeriod.routineVariantCodes.includes(variant.code)).sort(sortByOrder);
+      return { profile: committedProfile, period: committedPeriod, allPeriods: committedPeriods, exercises: committedExercises.sort(sortByOrder), allVariants: committedVariants.sort(sortByOrder), variants: activeVariants, workouts: committedWorkouts, setupStatus: 'complete' };
+    });
+    set((state) => ({ ...result, activeVariant: result.variants[0] || null, scheduleView: null }));
+    return { status: 'applied', ...result };
+  },
+
+  startNewMesocycle: async (cycleGoal) => {
+    if (!Number.isInteger(cycleGoal) || cycleGoal < 4 || cycleGoal > 8) throw new Error('Mesocycle goal must be an integer from 4 to 8');
+    const callerPeriod = get().period;
+    const result = await db.transaction('rw', db.periods, db.workouts, async () => {
+      const periods = await db.periods.toArray();
+      const active = periods.filter((p) => p.status === 'active');
+      if (!callerPeriod || active.length !== 1 || active[0].id !== callerPeriod.id || JSON.stringify(active[0]) !== JSON.stringify(callerPeriod)) throw new Error('Active period state conflicts with database');
+      const old = active[0];
+      const workouts = await db.workouts.toArray();
+      const unfinished = workouts.filter((w) => w.periodId === old.id && !w.finished);
+      if (unfinished.length > 1) throw new Error('Multiple unfinished workouts in active period');
+      const now = isoDate();
+      await db.periods.put({ ...old, status: 'archived', endDate: now });
+      let closed = null;
+      if (unfinished.length) {
+        closed = { ...unfinished[0], finished: true, closeReason: 'mesocycle-restart' };
+        await db.workouts.put(closed);
+      }
+      const fresh = { startDate: isoDate(mondayOf(new Date())), cycleGoal, status: 'active', rotationPos: 0, cycle: 1, ...(old.routineVariantCodes ? { routineVariantCodes: old.routineVariantCodes } : {}), ...(old.trainingSchedule ? { trainingSchedule: old.trainingSchedule } : {}), ...(old.routineRevision != null ? { routineRevision: old.routineRevision } : {}) };
+      fresh.id = await db.periods.add(fresh);
+      const committedPeriods = await db.periods.toArray();
+      const committedWorkouts = await db.workouts.toArray();
+      return { period: committedPeriods.find((p) => p.id === fresh.id), periods: committedPeriods, workouts: committedWorkouts, workout: closed };
+    });
+    set({ period: result.period, allPeriods: result.periods, workouts: result.workouts, scheduleView: null });
+    return result;
+  },
+
   archiveAndStartNew: async () => {
-    const { period } = get();
     const summary = get().periodSummary();
-    if (period) await db.periods.update(period.id, { status: 'archived', endDate: isoDate() });
-    const fresh = { startDate: isoDate(mondayOf(new Date())), cycleGoal: period?.cycleGoal || 6, status: 'active', rotationPos: 0, cycle: 1 };
-    fresh.id = await db.periods.add(fresh);
-    const allPeriods = await db.periods.toArray();
-    // only celebrate if the period actually had training in it
-    set({ period: fresh, allPeriods, periodCelebration: summary && summary.workouts > 0 ? summary : null });
+    await get().startNewMesocycle(get().period?.cycleGoal || 6);
+    set({ periodCelebration: summary && summary.workouts > 0 ? summary : null });
   },
 
   dismissPeriodCelebration: () => set({ periodCelebration: null }),
@@ -201,8 +444,37 @@ export const useStore = create((set, get) => ({
   /* ---------------- workouts ---------------- */
   /** Today's workout in the active period. An in-progress session wins over finished ones,
    *  so jumping variants after finishing shows the new session, not the closed one. */
+  trainingView: (date = isoDate()) => {
+    const { period, workouts, scheduleView, variants } = get();
+    if (!period?.trainingSchedule) {
+      const variant = get().currentVariant(date);
+      return { cycle: period?.cycle ?? 1, variant, variantCode: variant?.code ?? null, workout: get().sessionInView(), isManual: false, isRest: !variant };
+    }
+    const unfinished = workouts.find((workout) => workout.periodId === period.id && !workout.finished);
+    const variantByCode = new Map(variants.map((variant) => [variant.code, variant]));
+    if (unfinished) return {
+      cycle: unfinished.cycle ?? 1, variantCode: unfinished.variant, variant: variantByCode.get(unfinished.variant) || null,
+      workout: unfinished, isManual: false, isRest: false,
+    };
+    const manual = scheduleView?.periodId === period.id
+      && Number.isInteger(scheduleView.cycle) && scheduleView.cycle > 0
+      && (period.routineVariantCodes || []).includes(scheduleView.variantCode);
+    const cycle = manual ? scheduleView.cycle : get().effectiveCycle(date);
+    const variantCode = manual ? scheduleView.variantCode : get().currentVariant(date)?.code || null;
+    const variant = variantCode ? variantByCode.get(variantCode) || null : null;
+    if (!variantCode || !variant) return { cycle, variant: null, variantCode: null, workout: null, isManual: !!manual, isRest: true };
+    const candidates = workouts.filter((workout) => workout.periodId === period.id && workout.variant === variantCode && (workout.cycle ?? 1) === cycle && workout.finished
+      && (manual || period.trainingSchedule.mode !== 'weekly' || workout.date === date))
+      .sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+    return { cycle, variant, variantCode, workout: candidates.at(-1) || null, isManual: !!manual, isRest: false };
+  },
+
   todayWorkout: () => {
     const { workouts, period } = get();
+    if (period?.trainingSchedule) {
+      const unfinished = workouts.find((w) => w.periodId === period.id && !w.finished);
+      if (unfinished) return unfinished;
+    }
     const today = workouts.filter((w) => w.date === isoDate() && (!period || w.periodId === period.id));
     return today.find((w) => !w.finished) || today[today.length - 1] || null;
   },
@@ -213,7 +485,7 @@ export const useStore = create((set, get) => ({
     const { period, workouts } = get();
     const code = variantCode || get().currentVariant()?.code;
     if (!period || !code) return null;
-    const target = cycle ?? period.cycle ?? 1;
+    const target = cycle ?? get().effectiveCycle();
     const found = workouts
       .filter((w) => w.periodId === period.id && w.variant === code && (w.cycle ?? 1) === target)
       .sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
@@ -231,21 +503,21 @@ export const useStore = create((set, get) => ({
   },
 
   /** Create today's workout from a rotation variant (defaults to the queued one). */
-  createWorkout: async (variantCode) => {
+  createWorkout: async (variantCode, date = isoDate()) => {
     const { period } = get();
-    const code = variantCode || get().currentVariant()?.code;
+    const code = variantCode || get().currentVariant(date)?.code;
     const v = get().variantMap()[code];
-    if (!period || !v) return null;
+    if (!period || !v) return !variantCode && period?.trainingSchedule ? get().todayWorkout() : null;
     const w = {
-      date: isoDate(),
+      date,
       periodId: period.id,
-      cycle: period.cycle ?? 1,
+      cycle: weeklyCycle(period, date),
       variant: v.code,
-      week: weekOfPeriod(period.startDate),
-      dayKey: dayKeyOf(),
+      week: period.trainingSchedule?.mode === 'weekly' ? weeklyCycle(period, date) : weekOfPeriod(period.startDate, parseISO(date)),
+      dayKey: dayKeyOf(parseISO(date)), 
       block: v.name,
       finished: false,
-      entries: v.exerciseIds.map((exerciseId) => ({ exerciseId })),
+      entries: v.exerciseIds.map((exerciseId) => ({ exerciseId, ...(v.exerciseUnits?.[exerciseId] ? { unit: v.exerciseUnits[exerciseId] } : {}) })), 
     };
     w.id = await db.workouts.add(w);
     set({ workouts: [...get().workouts, w] });
@@ -273,40 +545,69 @@ export const useStore = create((set, get) => ({
   },
 
   finishWorkout: async (workoutId) => {
-    const w = get().workouts.find((x) => x.id === workoutId);
-    if (!w) return null;
-    const next = { ...w, finished: true };
-    await db.workouts.put(next);
-    const workouts = get().workouts.map((x) => (x.id === workoutId ? next : x));
-    set({ workouts });
-    // Advance to the next variant still pending in this cycle. The cycle only rolls over
-    // once all six are done, so jumping the order (Change) can't skip a cycle ahead.
-    // A session logged for another cycle leaves the pointer alone.
-    const { period, variants } = get();
-    const cur = period?.cycle ?? 1;
-    if (period && variants.length && (w.cycle ?? 1) === cur) {
-      const n = variants.length;
-      const done = new Set();
-      for (const x of workouts) {
-        if (x.periodId === period.id && x.finished && (x.cycle ?? 1) === cur) done.add(x.variant);
+    const committed = await db.transaction('rw', db.workouts, db.periods, async () => {
+      const [workout, periods, beforeWorkouts] = await Promise.all([
+        db.workouts.get(workoutId), db.periods.toArray(), db.workouts.toArray(),
+      ]);
+      if (!workout) return { changed: false, workout: null };
+      if (workout.finished) return { changed: false, workout, workouts: beforeWorkouts };
+      const active = periods.filter((period) => period.status === 'active');
+      const activePeriod = active.length === 1 ? active[0] : null;
+      const workoutPeriod = periods.find((period) => period.id === workout.periodId);
+      const belongsToActive = !!activePeriod && activePeriod.id === workout.periodId;
+      const mode = (belongsToActive ? activePeriod : workoutPeriod)?.trainingSchedule?.mode || 'legacy';
+      if (!['legacy', 'weekly', 'independent'].includes(mode)) throw new Error('Stored routine schedule mode is invalid');
+      const finished = { ...workout, finished: true };
+      await db.workouts.put(finished);
+      let nextPeriod = null;
+      const sameCycle = belongsToActive && (workout.cycle ?? 1) === (activePeriod.cycle ?? 1);
+      if (sameCycle && mode === 'independent'
+        && activePeriod.trainingSchedule.rotation[activePeriod.rotationPos] === workout.variant) {
+        nextPeriod = { ...activePeriod, ...advanceIndependentSchedule(activePeriod.trainingSchedule, {
+          rotationPos: activePeriod.rotationPos, cycle: activePeriod.cycle ?? 1, completed: true,
+        }) };
+        await db.periods.put(nextPeriod);
+      } else if (sameCycle && mode === 'legacy' && get().variants.length) {
+        // Preserve the legacy six-variant completion heuristic, using authoritative log rows.
+        const done = new Set(beforeWorkouts
+          .filter((item) => item.periodId === activePeriod.id && item.finished && (item.cycle ?? 1) === (activePeriod.cycle ?? 1))
+          .map((item) => item.variant));
+        done.add(workout.variant);
+        const variants = get().variants;
+        const index = variants.findIndex((variant) => variant.code === workout.variant);
+        const base = index >= 0 ? index : (activePeriod.rotationPos ?? 0);
+        let nextPosition = -1;
+        for (let offset = 1; offset <= variants.length; offset++) {
+          const candidate = (base + offset) % variants.length;
+          if (!done.has(variants[candidate].code)) { nextPosition = candidate; break; }
+        }
+        nextPeriod = { ...activePeriod, ...(nextPosition >= 0
+          ? { rotationPos: nextPosition, cycle: activePeriod.cycle ?? 1 }
+          : { rotationPos: 0, cycle: (activePeriod.cycle ?? 1) + 1 }) };
+        await db.periods.put(nextPeriod);
       }
-      const finIdx = variants.findIndex((v) => v.code === w.variant);
-      const base = finIdx >= 0 ? finIdx : (period.rotationPos ?? 0);
-      let nextPos = -1;
-      for (let i = 1; i <= n; i++) {
-        const idx = (base + i) % n;
-        if (!done.has(variants[idx].code)) { nextPos = idx; break; }
-      }
-      await get().updatePeriod(nextPos >= 0
-        ? { rotationPos: nextPos, cycle: cur }        // quedan variantes: el ciclo se queda
-        : { rotationPos: 0, cycle: cur + 1 });        // ciclo completo: rueda al siguiente
+      const [workouts, committedPeriods] = await Promise.all([db.workouts.toArray(), db.periods.toArray()]);
+      const committedActive = committedPeriods.filter((period) => period.status === 'active');
+      return {
+        changed: true, workout: finished, workouts, periods: committedPeriods,
+        period: nextPeriod && committedActive.length === 1 ? committedActive[0] : null,
+      };
+    });
+    if (!committed.workout) return null;
+    if (committed.changed) {
+      const period = committed.period;
+      const activeVariant = period?.trainingSchedule?.mode === 'independent'
+        ? get().variants.find((variant) => variant.code === period.trainingSchedule.rotation[period.rotationPos]) || get().activeVariant
+        : period?.trainingSchedule?.mode === 'weekly' ? variantForSchedule(period, get().variants, isoDate()) : get().activeVariant;
+      set({ workouts: committed.workouts, ...(period ? { period, allPeriods: committed.periods } : {}), activeVariant });
     }
-    const logs = buildLogs(workouts, get().setsByWorkout, w.periodId, get().exMap());
-    const entry = entryForWorkout(logs, w.cycle ?? 1, w.id);
+    const finishedWorkout = committed.workout;
+    const logs = buildLogs(committed.workouts || get().workouts, get().setsByWorkout, finishedWorkout.periodId, get().exMap());
+    const entry = entryForWorkout(logs, finishedWorkout.cycle ?? 1, finishedWorkout.id);
     return {
-      sets: entry ? entry.exercises.reduce((a, x) => a + x.sets.length, 0) : 0,
+      sets: entry ? entry.exercises.reduce((total, exercise) => total + exercise.sets.length, 0) : 0,
       volume: dayVolume(entry),
-      prs: dayPRs(logs, w.cycle ?? 1, w.variant, w.id),
+      prs: dayPRs(logs, finishedWorkout.cycle ?? 1, finishedWorkout.variant, finishedWorkout.id),
       workoutNum: workoutsDone(logs),
     };
   },

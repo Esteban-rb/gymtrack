@@ -5,6 +5,7 @@
 import React from 'react';
 import { MEDALS } from './calc.js';
 import { MedalBadge } from './components.jsx';
+import { useT } from './i18n.js';
 import { FRENTE, ESPALDA, SILUETA_FRENTE, SILUETA_ESPALDA, VIEWBOX_FRENTE, VIEWBOX_ESPALDA } from './bodypaths.js';
 
 // Tier vars, not literal hexes: the shapes carry their opacity in the `opacity`
@@ -18,9 +19,10 @@ function fillFor(group, levels) {
 }
 
 function Figure({ shapes, outline, viewBox, levels, label }) {
+  const { t } = useT();
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-      <svg viewBox={viewBox} style={{ width: '100%', maxWidth: 150, display: 'block' }} aria-label={label + ' muscle map'}>
+      <svg viewBox={viewBox} style={{ width: '100%', maxWidth: 150, display: 'block' }} aria-label={t('bodymap.aria', { label })}>
         {/* the body outline shows through at neck, hands, feet and joints */}
         <path d={outline} fill="var(--input-bg)" stroke="var(--chart-muted)" strokeWidth="2" strokeLinejoin="round" />
         {shapes.map((s, i) => (
@@ -34,19 +36,20 @@ function Figure({ shapes, outline, viewBox, levels, label }) {
 
 /** levels: { [muscleGroup]: averageMedalLevel (0..4 float) } — groups absent = untrained. */
 export default function BodyMap({ levels }) {
+  const { t, medal } = useT();
   const trained = MEDALS.map((_, lvl) => lvl).filter((lvl) =>
     Object.values(levels).some((v) => Math.round(v) === lvl));
   return (
     <div>
       <div style={{ display: 'flex', gap: 18, justifyContent: 'center' }}>
-        <Figure shapes={FRENTE} outline={SILUETA_FRENTE} viewBox={VIEWBOX_FRENTE} levels={levels} label="Front" />
-        <Figure shapes={ESPALDA} outline={SILUETA_ESPALDA} viewBox={VIEWBOX_ESPALDA} levels={levels} label="Back" />
+        <Figure shapes={FRENTE} outline={SILUETA_FRENTE} viewBox={VIEWBOX_FRENTE} levels={levels} label={t('bodymap.front')} />
+        <Figure shapes={ESPALDA} outline={SILUETA_ESPALDA} viewBox={VIEWBOX_ESPALDA} levels={levels} label={t('bodymap.back')} />
       </div>
       <div style={{ display: 'flex', justifyContent: 'center', gap: 14, marginTop: 14, flexWrap: 'wrap' }}>
-        {MEDALS.map((name, lvl) => (
-          <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 5, opacity: trained.includes(lvl) ? 1 : 0.35 }}>
+        {MEDALS.map((_, lvl) => (
+          <div key={lvl} style={{ display: 'flex', alignItems: 'center', gap: 5, opacity: trained.includes(lvl) ? 1 : 0.35 }}>
             <MedalBadge level={lvl} size={22} />
-            <span className="gt-micro">{name}</span>
+            <span className="gt-micro">{medal(lvl)}</span>
           </div>
         ))}
       </div>

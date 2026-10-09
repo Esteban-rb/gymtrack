@@ -3,10 +3,10 @@ import React, { useRef, useState } from 'react';
 import { useStore, AUTO_FINISH_MIN_SETS } from '../store.js';
 import { useShallow } from 'zustand/react/shallow';
 import { MUSCLES } from '../db.js';
-import { MEDALS, fmtDate } from '../calc.js';
 import { exportJSON, exportXLSX, importJSON, importXLSX } from '../backup.js';
 import { GIcon, Stepper, UnitChips, Sheet, SectionHead } from '../components.jsx';
 import HistoryScreen from './History.jsx';
+import { useT } from '../i18n.js';
 
 // v2 accent palette (from the Claude Design handoff); first entry = default red
 const ACCENTS = ['#FF3B30', '#FF6B35', '#FF9F0A', '#FFD60A', '#A8D91C', '#32D74B', '#1F8A5B', '#2AC0C8', '#0A84FF', '#2A6FDB', '#5E5CE6', '#BF5AF2', '#FF2D92', '#FF375F', '#B08968', '#8E8E93'];
@@ -24,7 +24,8 @@ function SettingRow({ label, sub, right, onClick, ariaLabel }) {
   );
 }
 
-export default function SettingsScreen() {
+export default function SettingsScreen({ onSetup, setupOpening = false } = {}) {
+  const { t, date, medal, muscle } = useT();
   const store = useStore(useShallow((state) => ({
     profile: state.profile, period: state.period, variants: state.variants, exercises: state.exercises,
     updatePeriod: state.updatePeriod, archiveAndStartNew: state.archiveAndStartNew,
@@ -67,35 +68,43 @@ export default function SettingsScreen() {
     const isExcel = /\.xlsx?$/i.test(file.name);
     try {
       if (isExcel) {
-        setImportMsg('Importing ' + file.name + '…');
+        setImportMsg(t('settings.importing', { name: file.name }));
         const { counts, affected } = await importXLSX(file);
         await store.init();
         // recompute baselines/PRs/medals for everything the file touched, silently
         for (const id of affected) await store.refreshPR(id);
         store.dismissMedal();
-        setImportMsg(`Imported ${counts.sets} sets · ${counts.workouts} sessions · ${counts.exercises} new exercises` + (counts.skipped ? ` · ${counts.skipped} duplicates skipped` : '') + ' ✓ — see History & Records');
+        setImportMsg(t('settings.importedXlsx', { sets: counts.sets, workouts: counts.workouts, exercises: counts.exercises }) + (counts.skipped ? t('settings.importedSkipped', { n: counts.skipped }) : '') + t('settings.importedTail'));
       } else {
-        if (!window.confirm('Importing a JSON backup replaces ALL current data. Continue?')) return;
-        setImportMsg('Importing ' + file.name + '…');
+        if (!window.confirm(t('settings.importJsonConfirm'))) return;
+        setImportMsg(t('settings.importing', { name: file.name }));
         await importJSON(file);
         await store.init();
-        setImportMsg('Backup restored ✓');
+        setImportMsg(t('settings.restored'));
       }
     } catch (err) {
-      setImportMsg('Import failed: ' + err.message); // stays on screen until the next import attempt
+      setImportMsg(t('settings.importFailed', { message: err.message })); // stays on screen until the next import attempt
     }
   };
 
   return (
     <div className="gt-scroll" style={{ height: '100%', padding: '18px 16px 150px' }}>
-      <h1 className="gt-h1" style={{ marginBottom: 4 }}>Settings</h1>
-      <div className="gt-sub">Mesocycle, routine & data</div>
+      <h1 className="gt-h1" style={{ marginBottom: 4 }}>{t('settings.title')}</h1>
+      <div className="gt-sub">{t('settings.sub')}</div>
 
-      <SectionHead>Mesocycle</SectionHead>
+      {onSetup ? <>
+        <SectionHead>{t('settings.setup')}</SectionHead>
+        <div className="gt-card" style={{ padding: 14 }}>
+          <div className="gt-sub" style={{ marginBottom: 10 }}>{t('settings.setupBody')}</div>
+          <button type="button" className="gt-btn gt-btn-ghost" disabled={setupOpening} aria-busy={setupOpening} onClick={onSetup}>{setupOpening ? t('settings.setupOpening') : t('settings.setupButton')}</button>
+        </div>
+      </> : null}
+
+      <SectionHead>{t('settings.mesocycle')}</SectionHead>
       <div className="gt-card" style={{ padding: '4px 16px' }}>
-        <SettingRow label="Start date" right={<div className="gt-num" style={{ fontSize: 15 }}>{period ? fmtDate(period.startDate) : '—'}</div>} />
-        <SettingRow label="Current cycle" right={<div className="gt-num" style={{ fontSize: 15 }}>{period ? (period.cycle ?? 1) : '—'}</div>} />
-        <SettingRow label="Cycle goal" sub="1 cycle = one full pass through the 6 variants" right={
+        <SettingRow label={t('settings.startDate')} right={<div className="gt-num" style={{ fontSize: 15 }}>{period ? date(period.startDate) : '—'}</div>} />
+        <SettingRow label={t('settings.currentCycle')} right={<div className="gt-num" style={{ fontSize: 15 }}>{period ? (period.cycle ?? 1) : '—'}</div>} />
+        <SettingRow label={t('settings.cycleGoal')} sub={t('settings.cycleGoalSub')} right={
           <div style={{ display: 'flex', gap: 5 }}>
             {[4, 6, 8].map((c) => <button key={c} className={'gt-chip' + ((period?.cycleGoal || 6) === c ? ' on' : '')} aria-pressed={(period?.cycleGoal || 6) === c} onClick={() => store.updatePeriod({ cycleGoal: c })}>{c}</button>)}
           </div>
@@ -103,83 +112,83 @@ export default function SettingsScreen() {
         <div style={{ padding: '14px 0' }}>
           {confirmArchive ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-              <div className="gt-sub" style={{ lineHeight: 1.5 }}>Archive the current mesocycle and start a fresh one today? History is kept for comparison.</div>
+              <div className="gt-sub" style={{ lineHeight: 1.5 }}>{t('settings.archiveConfirm')}</div>
               <div style={{ display: 'flex', gap: 9 }}>
-                <button className="gt-btn gt-btn-ghost" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={() => setConfirmArchive(false)}>Cancel</button>
-                <button className="gt-btn gt-btn-primary" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={async () => { await store.archiveAndStartNew(); setConfirmArchive(false); }}>Confirm</button>
+                <button className="gt-btn gt-btn-ghost" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={() => setConfirmArchive(false)}>{t('common.cancel')}</button>
+                <button className="gt-btn gt-btn-primary" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={async () => { await store.archiveAndStartNew(); setConfirmArchive(false); }}>{t('common.confirm')}</button>
               </div>
             </div>
           ) : (
-            <button className="gt-btn gt-btn-ghost" style={{ width: '100%', minHeight: 46, fontSize: 13.5 }} onClick={() => setConfirmArchive(true)}>End & archive · start new</button>
+            <button className="gt-btn gt-btn-ghost" style={{ width: '100%', minHeight: 46, fontSize: 13.5 }} onClick={() => setConfirmArchive(true)}>{t('settings.archiveButton')}</button>
           )}
         </div>
       </div>
 
-      <SectionHead>History</SectionHead>
+      <SectionHead>{t('settings.history')}</SectionHead>
       <div className="gt-card" style={{ padding: '4px 16px' }}>
-        <SettingRow label="Session history" sub="Browse past mesocycles, cycles and sessions" ariaLabel="open history" onClick={() => setShowHistory(true)} right={<div style={{ color: 'var(--text-3)' }}><GIcon name="chevR" size={16} /></div>} />
+        <SettingRow label={t('settings.sessionHistory')} sub={t('settings.sessionHistorySub')} ariaLabel={t('settings.openHistory')} onClick={() => setShowHistory(true)} right={<div style={{ color: 'var(--text-3)' }}><GIcon name="chevR" size={16} /></div>} />
       </div>
 
-      <SectionHead>Profile</SectionHead>
+      <SectionHead>{t('settings.profile')}</SectionHead>
       <div className="gt-card" style={{ padding: '4px 16px' }}>
-        <SettingRow label="Age" right={<Stepper label="Age" value={profile.age} step={1} min={10} width={120} onChange={(v) => store.updateProfile({ age: v })} />} />
-        <SettingRow label="Body weight" sub="Used for strength standards" right={<Stepper label="Body weight" value={profile.bodyweightKg} step={0.5} min={30} width={134} onChange={(v) => store.updateProfile({ bodyweightKg: v })} format={(v) => v + ' kg'} />} />
+        <SettingRow label={t('settings.age')} right={<Stepper label={t('settings.age')} value={profile.age} step={1} min={10} width={120} onChange={(v) => store.updateProfile({ age: v })} />} />
+        <SettingRow label={t('settings.bodyWeight')} sub={t('settings.bodyWeightSub')} right={<Stepper label={t('settings.bodyWeight')} value={profile.bodyweightKg} step={0.5} min={30} width={134} onChange={(v) => store.updateProfile({ bodyweightKg: v })} format={(v) => v + ' kg'} />} />
       </div>
 
-      <SectionHead>Appearance</SectionHead>
+      <SectionHead>{t('settings.appearance')}</SectionHead>
       <div className="gt-card" style={{ padding: '4px 16px 16px' }}>
-        <SettingRow label="Theme" right={
+        <SettingRow label={t('settings.theme')} right={
           <div style={{ display: 'flex', gap: 5 }}>
-            {['dark', 'light'].map((t) => <button key={t} className={'gt-chip' + (profile.theme === t ? ' on' : '')} aria-pressed={profile.theme === t} onClick={() => store.updateProfile({ theme: t })}>{t}</button>)}
+            {['dark', 'light'].map((mode) => <button key={mode} className={'gt-chip' + (profile.theme === mode ? ' on' : '')} aria-pressed={profile.theme === mode} onClick={() => store.updateProfile({ theme: mode })}>{t('settings.theme.' + mode)}</button>)}
           </div>
         } />
-        <div className="gt-micro" style={{ margin: '14px 0 10px 2px' }}>ACCENT COLOR</div>
+        <div className="gt-micro" style={{ margin: '14px 0 10px 2px' }}>{t('settings.accentCaps')}</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(44px, 1fr))', gap: 9 }}>
           {ACCENTS.map((c) => {
             const on = !mono && (profile.accent || ACCENTS[0]).toLowerCase() === c.toLowerCase();
-            return <button key={c} title={c} aria-label={'accent ' + c} aria-pressed={on} onClick={() => store.updateProfile({ accent: c })}
+            return <button key={c} title={c} aria-label={t('settings.accentAria', { color: c })} aria-pressed={on} onClick={() => store.updateProfile({ accent: c })}
               style={{ width: '100%', aspectRatio: '1', borderRadius: 999, cursor: 'pointer', padding: 0, background: c, border: '3px solid ' + (on ? 'var(--text)' : 'transparent'), WebkitTapHighlightColor: 'transparent' }} />;
           })}
         </div>
         {/* Mono isn't a hue — it repaints the whole app (medals and charts included) in
             black & white, so it gets its own slot instead of a 17th dot. */}
-        <div className="gt-micro" style={{ margin: '18px 0 10px 2px' }}>SPECIAL</div>
-        <button aria-label="accent mono" aria-pressed={mono} onClick={() => store.updateProfile({ accent: mono ? ACCENTS[0] : 'mono' })}
+        <div className="gt-micro" style={{ margin: '18px 0 10px 2px' }}>{t('settings.specialCaps')}</div>
+        <button aria-label={t('settings.monoAria')} aria-pressed={mono} onClick={() => store.updateProfile({ accent: mono ? ACCENTS[0] : 'mono' })}
           style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '11px 13px', borderRadius: 16, cursor: 'pointer', font: 'inherit', color: 'inherit', textAlign: 'left', background: mono ? 'var(--accent-soft)' : 'var(--input-bg)', border: '1px solid ' + (mono ? 'var(--accent)' : 'var(--border)'), WebkitTapHighlightColor: 'transparent' }}>
           <span style={{ width: 30, height: 30, borderRadius: 999, flexShrink: 0, background: 'linear-gradient(135deg, #FFFFFF 0 50%, #101114 50% 100%)', border: '2px solid ' + (mono ? 'var(--text)' : 'var(--border-strong)') }} />
           <span style={{ flex: 1, minWidth: 0 }}>
-            <span className="gt-body" style={{ fontWeight: 800, display: 'block' }}>Mono</span>
-            <span className="gt-micro">Full black &amp; white system — no color anywhere</span>
+            <span className="gt-body" style={{ fontWeight: 800, display: 'block' }}>{t('settings.mono')}</span>
+            <span className="gt-micro">{t('settings.monoSub')}</span>
           </span>
           {mono ? <GIcon name="check" size={17} style={{ color: 'var(--accent)' }} /> : null}
         </button>
       </div>
 
-      <SectionHead>Training</SectionHead>
+      <SectionHead>{t('settings.training')}</SectionHead>
       <div className="gt-card" style={{ padding: '4px 16px' }}>
-        <SettingRow label="Auto-finish" sub={'Closes the session once every exercise has ' + AUTO_FINISH_MIN_SETS + '+ sets'} right={
+        <SettingRow label={t('settings.autoFinish')} sub={t('settings.autoFinishSub', { n: AUTO_FINISH_MIN_SETS })} right={
           <div style={{ display: 'flex', gap: 5 }}>
             {[['on', true], ['off', false]].map(([l, v]) => (
-              <button key={l} className={'gt-chip' + (autoFinish === v ? ' on' : '')} aria-label={'auto-finish ' + l} aria-pressed={autoFinish === v}
-                onClick={() => store.updateProfile({ autoFinish: v })}>{l}</button>
+              <button key={l} className={'gt-chip' + (autoFinish === v ? ' on' : '')} aria-label={t('settings.autoFinishAria', { state: t('settings.' + l) })} aria-pressed={autoFinish === v}
+                onClick={() => store.updateProfile({ autoFinish: v })}>{t('settings.' + l)}</button>
             ))}
           </div>
         } />
       </div>
 
-      <SectionHead>Routine · rotation</SectionHead>
+      <SectionHead>{t('settings.routine')}</SectionHead>
       <div className="gt-card" style={{ padding: '14px 16px' }}>
         <div className="gt-scroll" style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
           {variants.map((v) => (
             <button key={v.code} className={'gt-chip' + (routineVar === v.code ? ' on' : '')} aria-pressed={routineVar === v.code} style={{ flexShrink: 0 }} onClick={() => { setRoutineVar(v.code); setNameDraft(null); }}>{v.code}</button>
           ))}
         </div>
-        <div className="gt-micro" style={{ margin: '12px 0 5px 4px' }}>{variant.code} · NAME</div>
+        <div className="gt-micro" style={{ margin: '12px 0 5px 4px' }}>{t('settings.nameCaps', { code: variant.code })}</div>
         <input
           className="gt-input"
-          aria-label={variant.code + ' variant name'}
+          aria-label={t('settings.variantNameAria', { code: variant.code })}
           value={nameDraft != null ? nameDraft : (variant.name || '')}
-          placeholder="e.g. Upper 1, Lower 2…"
+          placeholder={t('settings.variantNamePlaceholder')}
           onChange={(e) => setNameDraft(e.target.value)}
           onBlur={async () => {
             const name = (nameDraft || '').trim();
@@ -195,34 +204,34 @@ export default function SettingsScreen() {
             return (
               <div key={id + idx} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', borderBottom: '1px solid var(--border)' }}>
                 <div style={{ display: 'flex', gap: 2 }}>
-                  <button className="gt-iconbtn" style={{ borderRadius: 10, color: 'var(--text-3)' }} onClick={() => moveExercise(idx, -1)} aria-label={'move ' + e.name + ' up'}><GIcon name="chevU" size={12} stroke={2.6} /></button>
-                  <button className="gt-iconbtn" style={{ borderRadius: 10, color: 'var(--text-3)' }} onClick={() => moveExercise(idx, 1)} aria-label={'move ' + e.name + ' down'}><GIcon name="chevD" size={12} stroke={2.6} /></button>
+                  <button className="gt-iconbtn" style={{ borderRadius: 10, color: 'var(--text-3)' }} onClick={() => moveExercise(idx, -1)} aria-label={t('settings.moveUp', { name: e.name })}><GIcon name="chevU" size={12} stroke={2.6} /></button>
+                  <button className="gt-iconbtn" style={{ borderRadius: 10, color: 'var(--text-3)' }} onClick={() => moveExercise(idx, 1)} aria-label={t('settings.moveDown', { name: e.name })}><GIcon name="chevD" size={12} stroke={2.6} /></button>
                 </div>
                 <div style={{ flex: 1 }}>
                   <div className="gt-body" style={{ fontWeight: 700, fontSize: 13.5 }}>{e.name}</div>
-                  <div className="gt-micro">{e.muscle}{e.isBasic ? ' · big lift' : ''}</div>
+                  <div className="gt-micro">{muscle(e.muscle)}{e.isBasic ? t('settings.bigLift') : ''}</div>
                 </div>
-                <button className="gt-iconbtn" style={{ color: 'var(--text-2)' }} onClick={() => setEditingEx({ ...e })} aria-label={'edit ' + e.name}><GIcon name="edit" size={14} /></button>
-                <button className="gt-iconbtn" style={{ color: 'var(--text-3)' }} onClick={() => removeExercise(idx)} aria-label={'remove ' + e.name}><GIcon name="x" size={14} /></button>
+                <button className="gt-iconbtn" style={{ color: 'var(--text-2)' }} onClick={() => setEditingEx({ ...e })} aria-label={t('settings.editExercise', { name: e.name })}><GIcon name="edit" size={14} /></button>
+                <button className="gt-iconbtn" style={{ color: 'var(--text-3)' }} onClick={() => removeExercise(idx)} aria-label={t('settings.removeExercise', { name: e.name })}><GIcon name="x" size={14} /></button>
               </div>
             );
           })}
-          <button className="gt-btn gt-btn-ghost" style={{ width: '100%', marginTop: 12, minHeight: 44, fontSize: 13.5 }} onClick={() => { setAddSheet(true); setAddQuery(''); }}><GIcon name="plus" size={16} />Add exercise</button>
+          <button className="gt-btn gt-btn-ghost" style={{ width: '100%', marginTop: 12, minHeight: 44, fontSize: 13.5 }} onClick={() => { setAddSheet(true); setAddQuery(''); }}><GIcon name="plus" size={16} />{t('settings.addExercise')}</button>
         </div>
       </div>
 
-      <SectionHead>Medals</SectionHead>
+      <SectionHead>{t('settings.medals')}</SectionHead>
       <div className="gt-card" style={{ padding: '4px 16px' }}>
-        <SettingRow label="Medal thresholds" sub="Big lifts: est. 1RM as × body weight, Bronze → Diamond" onClick={() => setMedalSheet(true)} right={<div style={{ color: 'var(--text-3)' }}><GIcon name="chevR" size={16} /></div>} />
+        <SettingRow label={t('settings.medalThresholds')} sub={t('settings.medalThresholdsSub')} onClick={() => setMedalSheet(true)} right={<div style={{ color: 'var(--text-3)' }}><GIcon name="chevR" size={16} /></div>} />
       </div>
 
-      <SectionHead>Data</SectionHead>
+      <SectionHead>{t('settings.data')}</SectionHead>
       <div className="gt-card" style={{ padding: '14px 16px' }}>
-        <div className="gt-sub" style={{ lineHeight: 1.5 }}>Everything lives on this device (IndexedDB). Works fully offline — back up before switching phones. Import accepts a JSON backup (full restore) or an Excel file with your past records (Date, Exercise, Value, Unit, Reps — merged, never deletes).</div>
+        <div className="gt-sub" style={{ lineHeight: 1.5 }}>{t('settings.dataBody')}</div>
         <div style={{ display: 'flex', gap: 9, marginTop: 13 }}>
-          <button className="gt-btn gt-btn-ghost" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={() => exportJSON()}><GIcon name="download" size={16} />JSON backup</button>
-          <button className="gt-btn gt-btn-ghost" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={() => exportXLSX()}><GIcon name="download" size={16} />Excel</button>
-          <button className="gt-btn gt-btn-ghost" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={() => fileRef.current?.click()}><GIcon name="upload" size={16} />Import</button>
+          <button className="gt-btn gt-btn-ghost" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={() => exportJSON()}><GIcon name="download" size={16} />{t('settings.jsonBackup')}</button>
+          <button className="gt-btn gt-btn-ghost" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={() => exportXLSX()}><GIcon name="download" size={16} />{t('settings.excel')}</button>
+          <button className="gt-btn gt-btn-ghost" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={() => fileRef.current?.click()}><GIcon name="upload" size={16} />{t('settings.import')}</button>
         </div>
         <input ref={fileRef} type="file" accept=".json,.xlsx,.xls,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style={{ display: 'none' }} onChange={onImportFile} />
         {importMsg ? <div className="gt-sub" style={{ marginTop: 10, color: importMsg.includes('✓') ? 'var(--success)' : importMsg.includes('…') ? 'var(--text-2)' : 'var(--accent)' }}>{importMsg}</div> : null}
@@ -239,33 +248,33 @@ export default function SettingsScreen() {
       )}
 
       {/* Edit exercise */}
-      <Sheet open={!!editingEx} onClose={() => setEditingEx(null)} title="Edit exercise">
+      <Sheet open={!!editingEx} onClose={() => setEditingEx(null)} title={t('settings.editSheet')}>
         {editingEx ? (<>
-          <div className="gt-micro" style={{ margin: '0 0 5px 4px' }}>NAME</div>
-          <input className="gt-input" aria-label="Exercise name" value={editingEx.name} onChange={(e) => setEditingEx({ ...editingEx, name: e.target.value })} />
-          <div className="gt-micro" style={{ margin: '14px 0 7px 4px' }}>MUSCLE GROUP</div>
+          <div className="gt-micro" style={{ margin: '0 0 5px 4px' }}>{t('settings.nameLabel')}</div>
+          <input className="gt-input" aria-label={t('settings.exerciseName')} value={editingEx.name} onChange={(e) => setEditingEx({ ...editingEx, name: e.target.value })} />
+          <div className="gt-micro" style={{ margin: '14px 0 7px 4px' }}>{t('settings.muscleCaps')}</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {MUSCLES.map((m) => <button key={m} className={'gt-chip' + (editingEx.muscle === m ? ' on' : '')} aria-pressed={editingEx.muscle === m} onClick={() => setEditingEx({ ...editingEx, muscle: m })}>{m}</button>)}
+            {MUSCLES.map((m) => <button key={m} className={'gt-chip' + (editingEx.muscle === m ? ' on' : '')} aria-pressed={editingEx.muscle === m} onClick={() => setEditingEx({ ...editingEx, muscle: m })}>{muscle(m)}</button>)}
           </div>
-          <div className="gt-micro" style={{ margin: '14px 0 7px 4px' }}>DEFAULT UNIT</div>
+          <div className="gt-micro" style={{ margin: '14px 0 7px 4px' }}>{t('settings.unitCaps')}</div>
           <UnitChips value={editingEx.unit} onChange={(u) => setEditingEx({ ...editingEx, unit: u })} />
           <button className="gt-btn gt-btn-primary" style={{ width: '100%', marginTop: 18 }} onClick={async () => {
             if (editingEx.name.trim()) await store.saveExercise({ ...editingEx, name: editingEx.name.trim() });
             setEditingEx(null);
-          }}>Save</button>
+          }}>{t('common.save')}</button>
         </>) : null}
       </Sheet>
 
       {/* Add exercise to variant */}
-      <Sheet open={addSheet} onClose={() => setAddSheet(false)} title={'Add to ' + variant.code}>
-        <input className="gt-input" aria-label="Exercise search" value={addQuery} onChange={(e) => setAddQuery(e.target.value)} placeholder="Search or type a new exercise…" />
+      <Sheet open={addSheet} onClose={() => setAddSheet(false)} title={t('settings.addTo', { code: variant.code })}>
+        <input className="gt-input" aria-label={t('common.exerciseSearch')} value={addQuery} onChange={(e) => setAddQuery(e.target.value)} placeholder={t('common.exerciseSearchPlaceholder')} />
         <div style={{ marginTop: 10 }}>
           {exercises.filter((e) => e.active !== false && !variant.exerciseIds.includes(e.id) && e.name.toLowerCase().includes(addQuery.toLowerCase())).slice(0, 12).map((e) => (
             <button key={e.id} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '11px 4px', background: 'none', border: 'none', borderBottom: '1px solid var(--border)', font: 'inherit', color: 'inherit', textAlign: 'left', cursor: 'pointer' }}
               onClick={async () => { await store.saveVariant({ ...variant, exerciseIds: [...variant.exerciseIds, e.id] }); setAddSheet(false); }}>
               <div style={{ flex: 1 }}>
                 <div className="gt-body" style={{ fontWeight: 700 }}>{e.name}</div>
-                <div className="gt-micro">{e.muscle}</div>
+                <div className="gt-micro">{muscle(e.muscle)}</div>
               </div>
               <GIcon name="plus" size={15} style={{ color: 'var(--text-3)' }} />
             </button>
@@ -277,23 +286,23 @@ export default function SettingsScreen() {
             await store.saveVariant({ ...variant, exerciseIds: [...variant.exerciseIds, created.id] });
             setAddSheet(false);
           }}>
-            <GIcon name="plus" size={16} />Create “{addQuery.trim()}”
+            <GIcon name="plus" size={16} />{t('common.createExercise', { name: addQuery.trim() })}
           </button>
         )}
       </Sheet>
 
       {/* Medal thresholds */}
-      <Sheet open={medalSheet} onClose={() => setMedalSheet(false)} title="Medal thresholds">
-        <div className="gt-sub" style={{ marginBottom: 14, lineHeight: 1.5 }}>Est. 1RM targets as multiples of your body weight ({profile.bodyweightKg} kg). Adjust to match your standards.</div>
+      <Sheet open={medalSheet} onClose={() => setMedalSheet(false)} title={t('settings.medalThresholds')}>
+        <div className="gt-sub" style={{ marginBottom: 14, lineHeight: 1.5 }}>{t('settings.medalSheetBody', { bw: profile.bodyweightKg })}</div>
         {exercises.filter((e) => e.isBasic && e.standards).map((e) => (
           <div key={e.id} style={{ marginBottom: 16 }}>
             <div className="gt-body" style={{ fontWeight: 800, marginBottom: 7 }}>{e.name}</div>
             <div style={{ display: 'flex', gap: 6 }}>
               {e.standards.map((r, i) => (
                 <div key={i} style={{ flex: 1 }}>
-                  <div className="gt-micro" style={{ textAlign: 'center', marginBottom: 3 }}>{MEDALS[i].slice(0, 4).toUpperCase()}</div>
+                  <div className="gt-micro" style={{ textAlign: 'center', marginBottom: 3 }}>{t('medal.short.' + i)}</div>
                   <input className="gt-input" type="number" step="0.05" min="0" value={r}
-                    aria-label={e.name + ' — ' + MEDALS[i] + ' multiplier'}
+                    aria-label={t('settings.multiplierAria', { name: e.name, medal: medal(i) })}
                     style={{ padding: '9px 4px', textAlign: 'center', fontSize: 13, borderRadius: 10 }}
                     onChange={(ev) => {
                       const v = parseFloat(ev.target.value);

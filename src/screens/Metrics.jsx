@@ -8,6 +8,7 @@ import { MUSCLES } from '../db.js';
 import * as M from '../metrics.js';
 import { GIcon, ProgressBar, Stepper, Sheet, LineChart, Sparkline, Donut, DONUT_COLORS, SectionHead, EmptyState } from '../components.jsx';
 import BodyMap from '../bodymap.jsx';
+import { useT } from '../i18n.js';
 
 function MetricCard({ children, style }) {
   return <div className="gt-card" style={{ padding: '16px', marginBottom: 12, ...style }}>{children}</div>;
@@ -19,6 +20,7 @@ const deltaColor = (d) => (d >= 0 ? 'var(--success)' : 'var(--accent)');
 /* One exercise row inside a muscle card: sparkline + current + delta.
  * Press and hold anywhere on the row to expand the full chart (release to close). */
 function ExerciseTrendRow({ ex, focus }) {
+  const { t } = useT();
   const [held, setHeld] = useState(false);
   // arriving from the Home PR widget: the chart opens by itself and stays open until touched
   const [pinned, setPinned] = useState(false);
@@ -51,7 +53,7 @@ function ExerciseTrendRow({ ex, focus }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="gt-body" style={{ fontWeight: 800, fontSize: 13, color: pinned ? 'var(--accent)' : undefined }}>{ex.name}</div>
-          <div className="gt-micro" style={{ marginTop: 1 }}>avg kg per rep</div>
+          <div className="gt-micro" style={{ marginTop: 1 }}>{t('metrics.avgPerRep')}</div>
         </div>
         <Sparkline data={s} />
         <div style={{ width: 74, textAlign: 'right', flexShrink: 0 }}>
@@ -60,8 +62,8 @@ function ExerciseTrendRow({ ex, focus }) {
         </div>
       </div>
       {open && (
-        <div id={chartId} aria-label={ex.name + ' chart'} style={{ paddingBottom: 10, animation: 'gt-pop 0.25s cubic-bezier(.2,1.2,.4,1)', transformOrigin: '50% 0' }}>
-          <LineChart ariaLabel={`${ex.name} average load trend from ${s[0].kg} to ${cur} kg`} data={s} height={110} labelKey="cycle" fmtLabel={(l) => 'C' + l} fmtVal={(v) => v + ' kg'} />
+        <div id={chartId} aria-label={t('metrics.exerciseChart', { name: ex.name })} style={{ paddingBottom: 10, animation: 'gt-pop 0.25s cubic-bezier(.2,1.2,.4,1)', transformOrigin: '50% 0' }}>
+          <LineChart ariaLabel={t('metrics.exerciseTrend', { name: ex.name, from: s[0].kg, to: cur })} data={s} height={110} labelKey="cycle" fmtLabel={(l) => 'C' + l} fmtVal={(v) => v + ' kg'} />
         </div>
       )}
     </div>
@@ -70,6 +72,7 @@ function ExerciseTrendRow({ ex, focus }) {
 
 /* Accordion card: muscle summary row, expands to trend chart + exercise rows. */
 function MuscleCard({ muscle, data, open, onToggle, focusExercise }) {
+  const { t, muscle: muscleName } = useT();
   const s = data.series;
   const cur = s[s.length - 1].kg;
   const d = cur - s[0].kg;
@@ -79,8 +82,8 @@ function MuscleCard({ muscle, data, open, onToggle, focusExercise }) {
     <div className="gt-card" style={{ marginBottom: 10, overflow: 'hidden', borderColor: open ? 'var(--accent)' : undefined }}>
       <button onClick={onToggle} aria-expanded={open} aria-controls={contentId} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', minHeight: 54, background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', font: 'inherit', color: 'inherit', WebkitTapHighlightColor: 'transparent' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="gt-body" style={{ fontWeight: 800, fontSize: 15 }}>{muscle}</div>
-          <div className="gt-micro" style={{ marginTop: 1 }}>{nEx}{nEx === 1 ? ' exercise' : ' exercises'}</div>
+          <div className="gt-body" style={{ fontWeight: 800, fontSize: 15 }}>{muscleName(muscle)}</div>
+          <div className="gt-micro" style={{ marginTop: 1 }}>{t(nEx === 1 ? 'metrics.exerciseOne' : 'metrics.exerciseMany', { n: nEx })}</div>
         </div>
         <div style={{ textAlign: 'right' }}>
           <div className="gt-num" style={{ fontSize: 17 }}>{cur} kg</div>
@@ -91,11 +94,11 @@ function MuscleCard({ muscle, data, open, onToggle, focusExercise }) {
       {open && (
         <div id={contentId} style={{ padding: '0 16px 14px' }}>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <span className="gt-chip on" style={{ height: 26, padding: '0 10px', fontSize: 10, cursor: 'default' }}>Avg kg / rep</span>
+            <span className="gt-chip on" style={{ height: 26, padding: '0 10px', fontSize: 10, cursor: 'default' }}>{t('metrics.avgChip')}</span>
             <span className="gt-chip" style={{ height: 26, padding: '0 10px', fontSize: 10, cursor: 'default' }}>C{s[0].cycle} – C{s[s.length - 1].cycle}</span>
           </div>
           <div className="gt-num" style={{ fontSize: 34, lineHeight: 1, margin: '8px 0 2px' }}>{fmtDelta(d)}</div>
-          <LineChart ariaLabel={`${muscle} average load trend from ${s[0].kg} to ${cur} kg`} data={s} height={118} labelKey="cycle" fmtLabel={(l) => 'C' + l} fmtVal={(v) => v + ' kg'} />
+          <LineChart ariaLabel={t('metrics.muscleTrend', { name: muscleName(muscle), from: s[0].kg, to: cur })} data={s} height={118} labelKey="cycle" fmtLabel={(l) => 'C' + l} fmtVal={(v) => v + ' kg'} />
           <div style={{ marginTop: 6 }}>
             {data.exercises.map((e) => (
               <ExerciseTrendRow key={e.id} ex={e} focus={focusExercise && focusExercise.id === e.id ? focusExercise.n : null} />
@@ -108,6 +111,7 @@ function MuscleCard({ muscle, data, open, onToggle, focusExercise }) {
 }
 
 export default function MetricsScreen({ focus }) {
+  const { t, fixed, muscle: muscleName } = useT();
   const store = useStore(useShallow((state) => ({
     period: state.period, variants: state.variants, workouts: state.workouts,
     setsByWorkout: state.setsByWorkout, exercises: state.exercises, bodyweight: state.bodyweight,
@@ -185,7 +189,7 @@ export default function MetricsScreen({ focus }) {
 
   const bwSeries = bodyweight.map((b) => ({ label: b.date.slice(5).replace('-', '/'), kg: b.kg }));
 
-  const fmtTon = (v) => (volMode === 'tonnage' ? (v / 1000).toFixed(1) + ' t' : v);
+  const fmtTon = (v) => (volMode === 'tonnage' ? fixed(v / 1000) + ' t' : v);
   const lastVol = cycleVol[cycleVol.length - 1];
   const prevVol = cycleVol.length > 1 ? cycleVol[cycleVol.length - 2] : null;
 
@@ -193,10 +197,10 @@ export default function MetricsScreen({ focus }) {
   if (!hasData && !hasMedals) {
     return (
       <div className="gt-scroll" style={{ height: '100%', padding: '18px 16px 150px' }}>
-        <h1 className="gt-h1" style={{ marginBottom: 4 }}>Metrics</h1>
-        <div className="gt-sub">Your training dashboard</div>
+        <h1 className="gt-h1" style={{ marginBottom: 4 }}>{t('metrics.title')}</h1>
+        <div className="gt-sub">{t('metrics.sub')}</div>
         <div className="gt-card" style={{ marginTop: 18 }}>
-          <EmptyState icon="chart" title="No data yet" body="Finish your first session and your volume, muscle and progress charts will light up here." />
+          <EmptyState icon="chart" title={t('metrics.emptyTitle')} body={t('metrics.emptyBody')} />
         </div>
       </div>
     );
@@ -206,15 +210,15 @@ export default function MetricsScreen({ focus }) {
     // no workouts in the active period yet, but there IS history (e.g. imported / archived)
     return (
       <div className="gt-scroll" style={{ height: '100%', padding: '18px 16px 150px' }}>
-        <h1 className="gt-h1" style={{ marginBottom: 4 }}>Metrics</h1>
-        <div className="gt-sub">Cycle {cycle} · by cycle</div>
-        <SectionHead>Muscle medal map</SectionHead>
+        <h1 className="gt-h1" style={{ marginBottom: 4 }}>{t('metrics.title')}</h1>
+        <div className="gt-sub">{t('metrics.byCycle', { cycle })}</div>
+        <SectionHead>{t('metrics.medalMap')}</SectionHead>
         <MetricCard>
           <BodyMap levels={medalByMuscle} />
-          <div className="gt-micro" style={{ marginTop: 12, textAlign: 'center' }}>Each muscle takes the average medal of its exercises</div>
+          <div className="gt-micro" style={{ marginTop: 12, textAlign: 'center' }}>{t('metrics.medalMapNote')}</div>
         </MetricCard>
         <div className="gt-card" style={{ padding: 16, marginTop: 4 }}>
-          <div className="gt-sub" style={{ lineHeight: 1.5 }}>No sessions in this mesocycle yet — volume and progress charts light up as you train. Your full history lives in Settings → History; records and medals in Records.</div>
+          <div className="gt-sub" style={{ lineHeight: 1.5 }}>{t('metrics.noSessions')}</div>
         </div>
       </div>
     );
@@ -222,46 +226,46 @@ export default function MetricsScreen({ focus }) {
 
   return (
     <div className="gt-scroll" style={{ height: '100%', padding: '18px 16px 150px' }}>
-      <h1 className="gt-h1" style={{ marginBottom: 4 }}>Metrics</h1>
-      <div className="gt-sub">Cycle {cycle} in progress · by cycle</div>
+      <h1 className="gt-h1" style={{ marginBottom: 4 }}>{t('metrics.title')}</h1>
+      <div className="gt-sub">{t('metrics.byCycleActive', { cycle })}</div>
 
       {/* Cycles completed + adherence row */}
       <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
         <MetricCard style={{ flex: 1.4, marginBottom: 0 }}>
-          <div className="gt-label">Cycles complete</div>
+          <div className="gt-label">{t('metrics.cyclesComplete')}</div>
           <div className="gt-display" style={{ marginTop: 8 }}>{Math.max(0, cycle - 1)}<span style={{ fontSize: 17, color: 'var(--text-3)', fontWeight: 500 }}> / {cycleGoal}</span></div>
-          <div style={{ marginTop: 12 }}><ProgressBar label="Mesocycle progress" value={Math.max(0, cycle - 1)} max={cycleGoal} /></div>
-          <div className="gt-micro" style={{ marginTop: 7 }}>{Math.max(0, cycleGoal - (cycle - 1))} cycles to your goal</div>
+          <div style={{ marginTop: 12 }}><ProgressBar label={t('metrics.mesoProgress')} value={Math.max(0, cycle - 1)} max={cycleGoal} /></div>
+          <div className="gt-micro" style={{ marginTop: 7 }}>{t('metrics.cyclesToGoal', { n: Math.max(0, cycleGoal - (cycle - 1)) })}</div>
         </MetricCard>
         <MetricCard style={{ flex: 1, marginBottom: 0 }}>
-          <div className="gt-label">Adherence</div>
+          <div className="gt-label">{t('metrics.adherence')}</div>
           <div className="gt-display" style={{ marginTop: 8, color: adherence >= 90 ? 'var(--success)' : 'var(--text)' }}>{adherence}<span style={{ fontSize: 17, fontWeight: 500 }}>%</span></div>
-          <div className="gt-micro" style={{ marginTop: 12 }}>{totalWorkouts} of {programmedSoFar} sessions</div>
+          <div className="gt-micro" style={{ marginTop: 12 }}>{t('metrics.sessionsOf', { done: totalWorkouts, total: programmedSoFar })}</div>
         </MetricCard>
       </div>
 
-      <SectionHead>Tonnage per cycle</SectionHead>
+      <SectionHead>{t('metrics.tonnagePerCycle')}</SectionHead>
       <MetricCard>
         <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-          <button className={'gt-chip' + (volMode === 'tonnage' ? ' on' : '')} aria-pressed={volMode === 'tonnage'} onClick={() => setVolMode('tonnage')}>Tonnage</button>
-          <button className={'gt-chip' + (volMode === 'avg' ? ' on' : '')} aria-pressed={volMode === 'avg'} onClick={() => setVolMode('avg')}>Avg kg × avg reps</button>
+          <button className={'gt-chip' + (volMode === 'tonnage' ? ' on' : '')} aria-pressed={volMode === 'tonnage'} onClick={() => setVolMode('tonnage')}>{t('metrics.tonnage')}</button>
+          <button className={'gt-chip' + (volMode === 'avg' ? ' on' : '')} aria-pressed={volMode === 'avg'} onClick={() => setVolMode('avg')}>{t('metrics.avgLoad')}</button>
         </div>
         {lastVol ? (
           <div className="gt-num" style={{ fontSize: 34, lineHeight: 1, marginBottom: 4 }}>
             {fmtTon(lastVol.value)}
             <span className="gt-sub" style={{ fontSize: 13, fontFamily: 'Manrope, sans-serif', fontWeight: 600, marginLeft: 8 }}>
-              {lastVol.cycle === cycle ? 'cycle ' + cycle + ' in progress' : 'cycle ' + lastVol.cycle}
-              {prevVol ? ' · C' + prevVol.cycle + ' closed at ' + fmtTon(prevVol.value) : ''}
+              {lastVol.cycle === cycle ? t('metrics.cycleInProgress', { n: cycle }) : t('metrics.cycleLabel', { n: lastVol.cycle })}
+              {prevVol ? t('metrics.closedAt', { n: prevVol.cycle, value: fmtTon(prevVol.value) }) : ''}
             </span>
           </div>
         ) : null}
-        <LineChart ariaLabel={`${volMode === 'tonnage' ? 'Tonnage' : 'Average load'} per cycle; latest ${lastVol ? fmtTon(lastVol.value) : 'none'}`} data={cycleVol} height={130} valueKey="value" labelKey="cycle" fmtLabel={(l) => 'C' + l} fmtVal={fmtTon} />
-        <div className="gt-micro" style={{ marginTop: 8 }}>{volMode === 'tonnage' ? 'Real kg lifted per cycle · 1 point = one full pass through the 6 variants' : 'Average real kg × average reps per set, per cycle'}</div>
+        <LineChart ariaLabel={t('metrics.volAria', { mode: t(volMode === 'tonnage' ? 'metrics.modeTonnage' : 'metrics.modeAvg'), value: lastVol ? fmtTon(lastVol.value) : t('metrics.none') })} data={cycleVol} height={130} valueKey="value" labelKey="cycle" fmtLabel={(l) => 'C' + l} fmtVal={fmtTon} />
+        <div className="gt-micro" style={{ marginTop: 8 }}>{t(volMode === 'tonnage' ? 'metrics.tonnageNote' : 'metrics.avgNote')}</div>
       </MetricCard>
 
       {muscleList.length > 0 && (
         <>
-          <SectionHead>Muscle progress · avg kg per rep</SectionHead>
+          <SectionHead>{t('metrics.muscleProgress')}</SectionHead>
           {muscleList.map(({ muscle, data }) => (
             <MuscleCard key={muscle} muscle={muscle} data={data} open={effOpen === muscle}
               focusExercise={focusEx}
@@ -270,55 +274,55 @@ export default function MetricsScreen({ focus }) {
         </>
       )}
 
-      <SectionHead>Muscle medal map</SectionHead>
+      <SectionHead>{t('metrics.medalMap')}</SectionHead>
       <MetricCard>
         <BodyMap levels={medalByMuscle} />
-        <div className="gt-micro" style={{ marginTop: 12, textAlign: 'center' }}>Each muscle takes the average medal of its exercises</div>
+        <div className="gt-micro" style={{ marginTop: 12, textAlign: 'center' }}>{t('metrics.medalMapNote')}</div>
       </MetricCard>
 
-      <SectionHead>Volume split · mesocycle</SectionHead>
+      <SectionHead>{t('metrics.volumeSplit')}</SectionHead>
       <MetricCard>
         <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
-          <Donut ariaLabel={`Mesocycle volume split across ${split.slice(0, 6).map((item) => item.muscle).join(', ')}`} data={split.slice(0, 6)} />
+          <Donut ariaLabel={t('metrics.volumeSplitAria', { list: split.slice(0, 6).map((item) => muscleName(item.muscle)).join(', ') })} data={split.slice(0, 6)} />
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 7 }}>
             {split.slice(0, 6).map((s, i) => (
               <div key={s.muscle} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{ width: 9, height: 9, borderRadius: 3, background: DONUT_COLORS[i], flexShrink: 0 }} />
-                <div className="gt-sub" style={{ flex: 1, fontSize: 12 }}>{s.muscle}</div>
-                <div className="gt-num" style={{ fontSize: 13 }}>{(s.kg / 1000).toFixed(1)}t</div>
+                <div className="gt-sub" style={{ flex: 1, fontSize: 12 }}>{muscleName(s.muscle)}</div>
+                <div className="gt-num" style={{ fontSize: 13 }}>{fixed(s.kg / 1000)}t</div>
               </div>
             ))}
           </div>
         </div>
         <div className="gt-divider" style={{ margin: '14px 0' }} />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-          <div className="gt-label">Cumulative tonnage</div>
-          <div className="gt-num" style={{ fontSize: 24 }}>{(cumTonnage / 1000).toFixed(1)} t</div>
+          <div className="gt-label">{t('metrics.cumulative')}</div>
+          <div className="gt-num" style={{ fontSize: 24 }}>{fixed(cumTonnage / 1000)} t</div>
         </div>
       </MetricCard>
 
-      <SectionHead right={<button className="gt-chip" onClick={() => { setBwDraft(store.profile?.bodyweightKg || 70); setShowBwSheet(true); }}>+ Log</button>}>Body weight</SectionHead>
+      <SectionHead right={<button className="gt-chip" onClick={() => { setBwDraft(store.profile?.bodyweightKg || 70); setShowBwSheet(true); }}>{t('metrics.logBody')}</button>}>{t('metrics.bodyWeight')}</SectionHead>
       <MetricCard>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
           <div className="gt-display" style={{ fontSize: 32 }}>{bodyweight.length ? bodyweight[bodyweight.length - 1].kg : '—'}<span style={{ fontSize: 15, color: 'var(--text-3)', fontWeight: 500 }}> kg</span></div>
           {bodyweight.length > 1 ? (() => {
             const diff = bodyweight[bodyweight.length - 1].kg - bodyweight[0].kg;
-            return <div className="gt-sub" style={{ color: diff >= 0 ? 'var(--success)' : 'var(--accent)' }}>{(diff >= 0 ? '+' : '') + diff.toFixed(1)} kg logged</div>;
+            return <div className="gt-sub" style={{ color: diff >= 0 ? 'var(--success)' : 'var(--accent)' }}>{t('metrics.bwLogged', { diff: (diff >= 0 ? '+' : '') + fixed(diff) })}</div>;
           })() : null}
         </div>
         {bodyweight.length > 1
-          ? <LineChart ariaLabel={`Body weight trend from ${bodyweight[0].kg} to ${bodyweight[bodyweight.length - 1].kg} kg`} data={bwSeries} height={92} valueKey="kg" labelKey="label" fmtLabel={(l) => l} fmtVal={(v) => v} />
-          : <div className="gt-sub">Log your weight weekly to see the trend.</div>}
+          ? <LineChart ariaLabel={t('metrics.bwAria', { from: bodyweight[0].kg, to: bodyweight[bodyweight.length - 1].kg })} data={bwSeries} height={92} valueKey="kg" labelKey="label" fmtLabel={(l) => l} fmtVal={(v) => v} />
+          : <div className="gt-sub">{t('metrics.bwTrend')}</div>}
       </MetricCard>
 
-      <Sheet open={showBwSheet} onClose={() => setShowBwSheet(false)} title="Log body weight">
+      <Sheet open={showBwSheet} onClose={() => setShowBwSheet(false)} title={t('metrics.bwSheet')}>
         <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0 4px' }}>
-          <Stepper label="Body weight" value={bwDraft} step={0.1} width={200} onChange={setBwDraft} format={(v) => v.toFixed(1) + ' kg'} />
+          <Stepper label={t('metrics.bodyWeight')} value={bwDraft} step={0.1} width={200} onChange={setBwDraft} format={(v) => fixed(v) + ' kg'} />
         </div>
         <button className="gt-btn gt-btn-primary" style={{ width: '100%', marginTop: 16 }} onClick={async () => {
           await store.addBodyweight(+bwDraft.toFixed(1));
           setShowBwSheet(false);
-        }}>Save</button>
+        }}>{t('common.save')}</button>
       </Sheet>
     </div>
   );
