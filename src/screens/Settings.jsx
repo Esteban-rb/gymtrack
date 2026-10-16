@@ -69,12 +69,12 @@ export default function SettingsScreen({ onSetup, setupOpening = false } = {}) {
     try {
       if (isExcel) {
         setImportMsg(t('settings.importing', { name: file.name }));
-        const { counts, affected } = await importXLSX(file);
+        const { counts, affected, hasRoutine } = await importXLSX(file);
         await store.init();
         // recompute baselines/PRs/medals for everything the file touched, silently
         for (const id of affected) await store.refreshPR(id);
         store.dismissMedal();
-        setImportMsg(t('settings.importedXlsx', { sets: counts.sets, workouts: counts.workouts, exercises: counts.exercises }) + (counts.skipped ? t('settings.importedSkipped', { n: counts.skipped }) : '') + t('settings.importedTail'));
+        setImportMsg(t('settings.importedXlsx', { sets: counts.sets, workouts: counts.workouts, exercises: counts.exercises }) + (counts.skipped ? t('settings.importedSkipped', { n: counts.skipped }) : '') + t('settings.importedTail') + (hasRoutine ? t('settings.importedRoutine') : ''));
       } else {
         if (!window.confirm(t('settings.importJsonConfirm'))) return;
         setImportMsg(t('settings.importing', { name: file.name }));

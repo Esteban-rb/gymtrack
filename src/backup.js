@@ -1,6 +1,7 @@
 // GymTrack — backup safety net: full-fidelity JSON export/import + Excel export/import.
 import { db } from './db.js';
-import { isoDate, setTonnage, toKg, splitUnit, joinUnit, parseISO, mondayOf, weekOfPeriod, dayKeyOf, addDays } from './calc.js';
+import { isoDate, toKg, splitUnit, joinUnit, fmtWeight, parseISO, mondayOf, weekOfPeriod, dayKeyOf, addDays } from './calc.js';
+import { ROUTINE_COLUMNS, activeRoutineVariants, buildRoutineDraft, routineDraftToRows } from './routine-export.js';
 
 const TABLES = ['profile', 'bodyweightLog', 'periods', 'exercises', 'dayTemplates', 'routineVariants', 'workouts', 'sets', 'personalRecords'];
 
@@ -13,10 +14,15 @@ function download(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
-/** Complete backup of every table — the file that can be re-imported. */
+/** Complete backup of every table — the file that can be re-imported. It also carries the active
+ *  routine as a standalone `routine` draft, which the routine importer (setup wizard) can read. */
 export async function exportJSON() {
   const dump = { app: 'gymtrack', schema: 2, exportedAt: new Date().toISOString() };
   for (const t of TABLES) dump[t] = await db.table(t).toArray();
+  dump.routine = buildRoutineDraft({
+    variants: activeRoutineVariants({ periods: dump.periods, routineVariants: dump.routineVariants }),
+    exercises: dump.exercises,
+  });
   download(new Blob([JSON.stringify(dump, null, 1)], { type: 'application/json' }), `gymtrack-backup-${isoDate()}.json`);
 }
 
@@ -35,12 +41,68 @@ export async function importJSON(file) {
   });
 }
 
-/** Human-readable Excel export: one row per set, plus bodyweight and catalog sheets. */
+/* ---------------- Excel export ---------------- */
+
+// Column groups share one hue: a saturated header over a pale body, so the sheet reads in blocks.
+const GROUPS = {
+  when:     { head: '455A64', body: 'ECEFF1' },
+  training: { head: '1E5BB8', body: 'E3EEFB' },
+  muscle:   { head: '2E7D32', body: 'E6F4E7' },
+  identity: { head: 'B26A00', body: 'FFF1D6' },
+  routine:  { head: '6A1B9A', body: 'F1E4F7' },
+  plain:    { head: '37474F', body: 'F5F5F5' },
+};
+
+// ARGB, as Excel expects
+const argb = (hex) => 'FF' + hex;
+const edge = (style, hex) => ({ style, color: { rgb: argb(hex) } });
+
+/** A worksheet with a coloured header, tinted column groups and filters (the style writer has no freeze panes).
+ *  `columns`: [{ header, width, group, center }]; `rows`: arrays aligned to the columns.
+ *  `splitOn`: index of a column whose change starts a new block (drawn as a heavier top line). */
+function styledSheet(XLSX, columns, rows, { splitOn = null } = {}) {
+  const ws = XLSX.utils.aoa_to_sheet([columns.map((c) => c.header), ...rows]);
+  const groupStart = (c) => c === 0 || columns[c].group !== columns[c - 1].group;
+  const addr = (r, c) => XLSX.utils.encode_cell({ r, c });
+  for (let c = 0; c < columns.length; c++) {
+    const g = GROUPS[columns[c].group] || GROUPS.plain;
+    const left = groupStart(c) ? edge('medium', '263238') : edge('thin', 'B0BEC5');
+    const head = ws[addr(0, c)];
+    head.s = {
+      font: { bold: true, color: { rgb: argb('FFFFFF') } },
+      fill: { patternType: 'solid', fgColor: { rgb: argb(g.head) } },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: { top: edge('thin', '263238'), bottom: edge('medium', '263238'), left, right: edge('thin', 'B0BEC5') },
+    };
+    for (let r = 1; r <= rows.length; r++) {
+      const cell = ws[addr(r, c)];
+      if (!cell) continue;
+      const newBlock = splitOn != null && r > 1 && rows[r - 1][splitOn] !== rows[r - 2][splitOn];
+      cell.s = {
+        fill: { patternType: 'solid', fgColor: { rgb: argb(g.body) } },
+        alignment: { horizontal: columns[c].center ? 'center' : 'left', vertical: 'center' },
+        border: {
+          top: newBlock ? edge('medium', '263238') : edge('thin', 'CFD8DC'),
+          bottom: edge('thin', 'CFD8DC'), left, right: edge('thin', 'B0BEC5'),
+        },
+      };
+    }
+  }
+  ws['!cols'] = columns.map((c) => ({ wch: c.width }));
+  ws['!rows'] = [{ hpt: 22 }];
+  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(rows.length, 1), c: columns.length - 1 } }) };
+  return ws;
+}
+
+/** Excel export, laid out to be read: Sets (one row per set, colour-grouped), Routine (re-importable
+ *  through the routine importer), Bodyweight, Exercises and Periods. */
 export async function exportXLSX() {
-  // SheetJS is heavy — load it only when exporting (it still gets precached for offline use)
-  const XLSX = await import('xlsx');
-  const [workouts, sets, exercises, bodyweight, periods] = await Promise.all([
-    db.workouts.toArray(), db.sets.toArray(), db.exercises.toArray(), db.bodyweightLog.toArray(), db.periods.toArray(),
+  // SheetJS is heavy — load it only when exporting (it still gets precached for offline use).
+  // The style-capable build is used for writing only; reading stays on the main `xlsx` package.
+  const mod = await import('xlsx-js-style');
+  const XLSX = mod.default ?? mod;
+  const [workouts, sets, exercises, bodyweight, periods, routineVariants] = await Promise.all([
+    db.workouts.toArray(), db.sets.toArray(), db.exercises.toArray(), db.bodyweightLog.toArray(), db.periods.toArray(), db.routineVariants.toArray(),
   ]);
   const exMap = Object.fromEntries(exercises.map((e) => [e.id, e]));
   const wMap = Object.fromEntries(workouts.map((w) => [w.id, w]));
@@ -48,24 +110,63 @@ export async function exportXLSX() {
   const setRows = sets
     .map((s) => ({ s, w: wMap[s.workoutId] }))
     .filter((r) => r.w)
-    .sort((a, b) => a.w.date.localeCompare(b.w.date) || a.s.id - b.s.id)
-    .map(({ s, w }) => ({
-      Date: w.date, WorkoutId: w.id, Cycle: w.cycle ?? w.week, Variant: w.variant ?? w.dayKey, Block: w.block,
-      Exercise: (exMap[s.exerciseId] || {}).name || s.exerciseId,
-      Muscle: (exMap[s.exerciseId] || {}).muscle || '',
-      Set: s.n, Value: s.value, Unit: s.unit, Reps: s.reps,
-      RealKg: +s.realKg.toFixed(2), TonnageKg: +setTonnage(s).toFixed(1),
-    }));
+    .sort((a, b) => a.w.date.localeCompare(b.w.date) || a.w.id - b.w.id || a.s.id - b.s.id)
+    .map(({ s, w }) => [
+      w.date,
+      (exMap[s.exerciseId] || {}).name || s.exerciseId,
+      s.n,
+      s.reps,
+      fmtWeight(s.value, s.unit),
+      (exMap[s.exerciseId] || {}).muscle || '',
+      w.variant ?? w.dayKey,
+      w.cycle ?? w.week,
+      w.id,
+    ]);
+  const setCols = [
+    { header: 'Date', width: 12, group: 'when', center: true },
+    { header: 'Exercise', width: 28, group: 'training' },
+    { header: 'Set', width: 6, group: 'training', center: true },
+    { header: 'Reps', width: 7, group: 'training', center: true },
+    { header: 'Weight', width: 14, group: 'training', center: true },
+    { header: 'Muscle', width: 14, group: 'muscle' },
+    { header: 'Variant', width: 10, group: 'muscle', center: true },
+    { header: 'Cycle', width: 8, group: 'identity', center: true },
+    { header: 'Workout ID', width: 12, group: 'identity', center: true },
+  ];
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(setRows), 'Sets');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(bodyweight.map((b) => ({ Date: b.date, Kg: b.kg }))), 'Bodyweight');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(exercises.map((e) => ({
-    Name: e.name, Muscle: e.muscle, Unit: e.unit, Basic: e.isBasic ? 'yes' : '', Standards: e.standards ? e.standards.join(' / ') : '',
-  }))), 'Exercises');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(periods.map((p) => ({
-    Start: p.startDate, CycleGoal: p.cycleGoal ?? p.weeks, Cycle: p.cycle ?? '', Status: p.status, End: p.endDate || '',
-  }))), 'Periods');
+  XLSX.utils.book_append_sheet(wb, styledSheet(XLSX, setCols, setRows, { splitOn: 8 }), 'Sets');
+
+  // the routine in force, so this same file can be offered to the routine importer
+  const draft = buildRoutineDraft({ variants: activeRoutineVariants({ periods, routineVariants }), exercises });
+  if (draft) {
+    const routineCols = [
+      { header: ROUTINE_COLUMNS[0], width: 9, group: 'routine', center: true },
+      { header: ROUTINE_COLUMNS[1], width: 20, group: 'routine' },
+      { header: ROUTINE_COLUMNS[2], width: 10, group: 'routine', center: true },
+      { header: ROUTINE_COLUMNS[3], width: 14, group: 'routine', center: true },
+      { header: ROUTINE_COLUMNS[4], width: 15, group: 'training', center: true },
+      { header: ROUTINE_COLUMNS[5], width: 28, group: 'training' },
+      { header: ROUTINE_COLUMNS[6], width: 14, group: 'muscle' },
+      { header: ROUTINE_COLUMNS[7], width: 9, group: 'muscle', center: true },
+    ];
+    const routineRows = routineDraftToRows(draft).map((r) => ROUTINE_COLUMNS.map((k) => r[k]));
+    XLSX.utils.book_append_sheet(wb, styledSheet(XLSX, routineCols, routineRows, { splitOn: 0 }), 'Routine');
+  }
+
+  XLSX.utils.book_append_sheet(wb, styledSheet(XLSX,
+    [{ header: 'Date', width: 12, group: 'when', center: true }, { header: 'Kg', width: 8, group: 'training', center: true }],
+    [...bodyweight].sort((a, b) => a.date.localeCompare(b.date)).map((b) => [b.date, b.kg])), 'Bodyweight');
+  XLSX.utils.book_append_sheet(wb, styledSheet(XLSX, [
+    { header: 'Name', width: 28, group: 'training' }, { header: 'Muscle', width: 14, group: 'muscle' },
+    { header: 'Unit', width: 9, group: 'muscle', center: true }, { header: 'Basic', width: 8, group: 'identity', center: true },
+    { header: 'Standards', width: 30, group: 'identity' },
+  ], exercises.map((e) => [e.name, e.muscle, e.unit, e.isBasic ? 'yes' : '', e.standards ? e.standards.join(' / ') : ''])), 'Exercises');
+  XLSX.utils.book_append_sheet(wb, styledSheet(XLSX, [
+    { header: 'Start', width: 12, group: 'when', center: true }, { header: 'CycleGoal', width: 11, group: 'training', center: true },
+    { header: 'Cycle', width: 8, group: 'training', center: true }, { header: 'Status', width: 10, group: 'identity', center: true },
+    { header: 'End', width: 12, group: 'when', center: true },
+  ], periods.map((p) => [p.startDate, p.cycleGoal ?? p.weeks, p.cycle ?? '', p.status, p.endDate || ''])), 'Periods');
 
   const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   download(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `gymtrack-${isoDate()}.xlsx`);
@@ -103,8 +204,20 @@ function normUnit(v, fallback = 'kg') {
   return fallback;
 }
 
+/** The single "Weight" cell the app exports ("80 kg", "20 kg ×2", "3 plates", "62.5") or a bare
+ *  number from older files. Returns { value, unit } where unit is null when the cell carries none. */
+function parseWeight(v) {
+  if (typeof v === 'number') return { value: v, unit: null };
+  const m = String(v ?? '').trim().toLowerCase().match(/^(\d+(?:[.,]\d+)?)\s*(kgs?|lbs?|plates?|discos?)?\s*([×x*]\s*2)?$/);
+  if (!m) return { value: NaN, unit: null };
+  const base = !m[2] ? null : m[2].startsWith('k') ? 'kg' : m[2].startsWith('l') ? 'lb' : 'plates';
+  if (!base) return { value: parseFloat(m[1].replace(',', '.')), unit: m[3] ? 'kgx2' : null };
+  return { value: parseFloat(m[1].replace(',', '.')), unit: joinUnit(base, !!m[3]) };
+}
+
 /** Merge sets from an Excel file (the app's own export format: a 'Sets' sheet with
- *  Date / Exercise / Value / Unit / Reps columns; Set, Muscle and Block are optional).
+ *  Date / Exercise / Weight (or Value + Unit) / Reps columns; Set, Muscle, Variant, Cycle and
+ *  Workout ID are optional). A 'Routine' sheet is left alone — it belongs to the routine importer.
  *  Creates missing exercises and workouts; dates older than every period get their own
  *  archived "Imported" period. Skips rows already present. Returns counts. */
 export async function importXLSX(file) {
@@ -133,13 +246,14 @@ export async function importXLSX(file) {
     const date = normDate(get(r, 'date', 'fecha'));
     const name = String(get(r, 'exercise', 'ejercicio', 'name') || '').trim();
     const reps = parseInt(get(r, 'reps', 'repeticiones'), 10);
-    const value = parseFloat(get(r, 'value', 'weight', 'peso'));
+    const weight = parseWeight(get(r, 'weight', 'peso', 'value'));
+    const value = weight.value;
     if (!date || !name || isNaN(reps) || isNaN(value)) continue;
     const sourceWorkoutId = get(r, 'workoutid', 'workout id', 'sessionid', 'session id', 'session');
     const cycle = parseInt(get(r, 'cycle', 'ciclo'), 10);
     rows.push({
       date, name, reps, value,
-      unit: normUnit(get(r, 'unit', 'unidad')),
+      unit: weight.unit || normUnit(get(r, 'unit', 'unidad')),
       n: parseInt(get(r, 'set', 'serie'), 10) || null,
       muscle: String(get(r, 'muscle', 'musculo') || '').trim(),
       block: String(get(r, 'block', 'bloque') || '').trim(),
@@ -157,18 +271,20 @@ export async function importXLSX(file) {
   const counts = { sets: 0, workouts: 0, exercises: 0, skipped: 0 };
   const affected = new Set();
 
-  await db.transaction('rw', [db.exercises, db.workouts, db.sets, db.periods], async () => {
-    const [exercises, workouts, allSets, periods] = await Promise.all([
-      db.exercises.toArray(), db.workouts.toArray(), db.sets.toArray(), db.periods.toArray(),
+  await db.transaction('rw', [db.exercises, db.workouts, db.sets, db.periods, db.routineVariants], async () => {
+    const [exercises, workouts, allSets, periods, routineVariants] = await Promise.all([
+      db.exercises.toArray(), db.workouts.toArray(), db.sets.toArray(), db.periods.toArray(), db.routineVariants.toArray(),
     ]);
+    // files no longer carry the session's display name: recover it from the variant code
+    const blockByVariant = new Map(routineVariants.map((v) => [v.code, v.name]));
     const exByName = new Map(exercises.map((e) => [e.name.toLowerCase(), e]));
     const fallbackByDate = new Map();
     const bySourceId = new Map();
     const byStructuredIdentity = new Map();
     const workoutIdentityKey = (r) => hasWorkoutIdentity && r.sourceWorkoutId
       ? `source:${r.sourceWorkoutId}`
-      : (hasStructuredIdentity ? `structured:${r.date}|${r.cycle ?? ''}|${r.variant ?? ''}|${r.block || ''}` : `date:${r.date}`);
-    const existingStructuredKey = (w) => `structured:${w.date}|${w.cycle ?? ''}|${w.variant ?? ''}|${w.block || ''}`;
+      : (hasStructuredIdentity ? `structured:${r.date}|${r.cycle ?? ''}|${r.variant ?? ''}` : `date:${r.date}`);
+    const existingStructuredKey = (w) => `structured:${w.date}|${w.cycle ?? ''}|${w.variant ?? ''}`;
     for (const w of workouts) {
       if (!fallbackByDate.has(w.date)) fallbackByDate.set(w.date, w);
       if (w.importSourceId != null) bySourceId.set(`source:${String(w.importSourceId)}`, w);
@@ -221,7 +337,7 @@ export async function importXLSX(file) {
           date: r.date, periodId: p.id, week,
           dayKey, templateDay: dayKey,
           cycle: r.cycle ?? week, variant: r.variant ?? dayKey,
-          block: r.block || 'Imported', finished: true, entries: [],
+          block: r.block || blockByVariant.get(r.variant) || r.variant || 'Imported', finished: true, entries: [],
         };
         if (r.sourceWorkoutId) w.importSourceId = r.sourceWorkoutId;
         w.id = await db.workouts.add(w);
@@ -294,5 +410,6 @@ export async function importXLSX(file) {
     }
   }
 
-  return { counts, affected: [...affected] };
+  const hasRoutine = wb.SheetNames.some((n) => ['routine', 'routines', 'rutina', 'rutinas'].includes(n.trim().toLowerCase()));
+  return { counts, affected: [...affected], hasRoutine };
 }

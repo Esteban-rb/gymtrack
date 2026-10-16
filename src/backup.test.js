@@ -2,7 +2,8 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { db } from './db.js';
-import { exportXLSX, importXLSX } from './backup.js';
+import { exportJSON, exportXLSX, importXLSX } from './backup.js';
+import { decodeRoutineFile } from './routine-import.js';
 
 const TABLES = ['profile', 'bodyweightLog', 'periods', 'exercises', 'dayTemplates', 'routineVariants', 'workouts', 'sets', 'personalRecords'];
 
@@ -62,6 +63,10 @@ describe('Excel history roundtrip identity', () => {
   it('exports stable workout identity and re-imports app history without losing cycle or variant', async () => {
     const periodId = await db.periods.add({ startDate: '2026-06-01', cycleGoal: 6, status: 'active', rotationPos: 0, cycle: 3 });
     await db.exercises.put({ id: 'bench', name: 'Bench Press', muscle: 'Chest', unit: 'kg', active: true, order: 0 });
+    await db.routineVariants.bulkPut([
+      { code: 'U1', order: 0, name: 'Upper 1', kind: 'Upper', exerciseIds: ['bench'] },
+      { code: 'L1', order: 1, name: 'Lower 1', kind: 'Lower', exerciseIds: ['bench'] },
+    ]);
     const upperId = await db.workouts.add({ date: '2026-06-11', periodId, cycle: 2, variant: 'U1', week: 2, dayKey: 'Thu', templateDay: 'Thu', block: 'Upper 1', finished: true, entries: [{ exerciseId: 'bench' }] });
     const lowerId = await db.workouts.add({ date: '2026-06-11', periodId, cycle: 2, variant: 'L1', week: 2, dayKey: 'Thu', templateDay: 'Thu', block: 'Lower 1', finished: true, entries: [{ exerciseId: 'bench' }] });
     await db.sets.bulkAdd([
@@ -72,7 +77,7 @@ describe('Excel history roundtrip identity', () => {
     const exported = await captureExport();
     const exportedWb = await readWorkbook(exported);
     const exportedRows = (await import('xlsx')).utils.sheet_to_json(exportedWb.Sheets.Sets, { raw: true });
-    expect(exportedRows.map((row) => row.WorkoutId)).toEqual([upperId, lowerId]);
+    expect(exportedRows.map((row) => row['Workout ID'])).toEqual([upperId, lowerId]);
 
     await db.transaction('rw', [db.workouts, db.sets], async () => {
       await db.sets.clear();
@@ -195,5 +200,135 @@ describe('Excel bodyweight profile merge', () => {
 
     expect(profile).toEqual({ id: 1, age: 18, bodyweightKg: 80, theme: 'dark' });
     expect(bodyweight.map(({ date, kg }) => ({ date, kg }))).toEqual([{ date: '2026-06-10', kg: 81 }]);
+  });
+});
+
+describe('Excel export layout', () => {
+  async function seedWorkout() {
+    const periodId = await db.periods.add({ startDate: '2026-06-01', cycleGoal: 6, status: 'active', rotationPos: 0, cycle: 2 });
+    await db.exercises.bulkPut([
+      { id: 'bench', name: 'Bench Press', muscle: 'Chest', unit: 'kg', active: true, order: 0 },
+      { id: 'lat', name: 'Cable Lateral Raises', muscle: 'Shoulders', unit: 'lbx2', active: true, order: 1 },
+      { id: 'hack', name: 'Hack Squat', muscle: 'Quads', unit: 'plates', active: true, order: 2 },
+    ]);
+    await db.routineVariants.bulkPut([
+      { code: 'U1', order: 0, name: 'Upper 1', kind: 'Upper', exerciseIds: ['bench', 'lat'] },
+      { code: 'L1', order: 1, name: 'Lower 1', kind: 'Lower', exerciseIds: ['hack'], exerciseUnits: { hack: 'plates' } },
+    ]);
+    const w1 = await db.workouts.add({ date: '2026-06-11', periodId, cycle: 2, variant: 'U1', week: 2, dayKey: 'Thu', templateDay: 'Thu', block: 'Upper 1', finished: true, entries: [{ exerciseId: 'bench' }, { exerciseId: 'lat' }] });
+    const w2 = await db.workouts.add({ date: '2026-06-12', periodId, cycle: 2, variant: 'L1', week: 2, dayKey: 'Fri', templateDay: 'Fri', block: 'Lower 1', finished: true, entries: [{ exerciseId: 'hack' }] });
+    await db.sets.bulkAdd([
+      { workoutId: w1, exerciseId: 'bench', n: 1, reps: 8, value: 82.5, unit: 'kg', realKg: 82.5 },
+      { workoutId: w1, exerciseId: 'bench', n: 2, reps: 8, value: 82.5, unit: 'kg', realKg: 82.5 },
+      { workoutId: w1, exerciseId: 'lat', n: 1, reps: 12, value: 20, unit: 'lbx2', realKg: 18.14 },
+      { workoutId: w2, exerciseId: 'hack', n: 1, reps: 10, value: 3, unit: 'plates', realKg: 90 },
+    ]);
+    return { w1, w2 };
+  }
+
+  it('lays Sets out as Date, Exercise, Set, Reps, Weight, Muscle, Variant, Cycle, Workout ID — no Block, Value, Unit or derived columns', async () => {
+    const { w1 } = await seedWorkout();
+    const wb = await readWorkbook(await captureExport());
+    const XLSX = await import('xlsx');
+    expect(wb.SheetNames).toEqual(['Sets', 'Routine', 'Bodyweight', 'Exercises', 'Periods']);
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets.Sets, { raw: true });
+    expect(Object.keys(rows[0])).toEqual(['Date', 'Exercise', 'Set', 'Reps', 'Weight', 'Muscle', 'Variant', 'Cycle', 'Workout ID']);
+    expect(rows.map((r) => r.Weight)).toEqual(['82.5 kg', '82.5 kg', '20 lb ×2', '3 plates']);
+    expect(rows[0]).toMatchObject({ Date: '2026-06-11', Exercise: 'Bench Press', Set: 1, Reps: 8, Muscle: 'Chest', Variant: 'U1', Cycle: 2, 'Workout ID': w1 });
+  });
+
+  it('colours the Sets columns in groups', async () => {
+    await seedWorkout();
+    const wb = (await import('xlsx-js-style')).default.read(new Uint8Array(await (await captureExport()).arrayBuffer()), { type: 'array', cellStyles: true });
+    const fill = (addr) => wb.Sheets.Sets[addr].s?.fgColor?.rgb ?? wb.Sheets.Sets[addr].s?.fill?.fgColor?.rgb;
+    const header = ['A1', 'B1', 'F1', 'H1'].map(fill);
+    expect(new Set(header).size).toBe(4);              // date / training / muscle / identity
+    expect(fill('B1')).toBe(fill('E1'));                // Exercise..Weight share a colour
+    expect(fill('F1')).toBe(fill('G1'));                // Muscle + Variant
+    expect(fill('H1')).toBe(fill('I1'));                // Cycle + Workout ID
+  });
+
+  it('adds a Routine sheet the routine importer reads back', async () => {
+    await seedWorkout();
+    const exported = await captureExport();
+    const XLSX = await import('xlsx');
+    const rows = XLSX.utils.sheet_to_json((await readWorkbook(exported)).Sheets.Routine, { raw: true });
+    expect(rows[0]).toEqual({ Code: 'U1', 'Routine name': 'Upper 1', Kind: 'Upper', 'Routine order': 1, 'Exercise order': 1, Exercise: 'Bench Press', Muscle: 'Chest', Unit: 'kg' });
+
+    const catalog = await db.exercises.toArray();
+    const decoded = await decodeRoutineFile(new File([exported], 'gymtrack.xlsx'), catalog);
+    expect(decoded.errors).toEqual([]);
+    expect(decoded.valid).toBe(true);
+    expect(decoded.draft.variants.map((v) => [v.code, v.name, v.exercises.map((e) => [e.ref.id, e.unit])])).toEqual([
+      ['U1', 'Upper 1', [['bench', 'kg'], ['lat', 'lbx2']]],
+      ['L1', 'Lower 1', [['hack', 'plates']]],
+    ]);
+  });
+
+  it('re-imports Weight into value + unit and keeps repeated identical sets', async () => {
+    const { w1 } = await seedWorkout();
+    const exported = await captureExport();
+    await db.transaction('rw', [db.workouts, db.sets], async () => { await db.sets.clear(); await db.workouts.clear(); });
+
+    const result = await importXLSX(new File([exported], 'roundtrip.xlsx'));
+    expect(result.counts).toMatchObject({ workouts: 2, sets: 4, skipped: 0 });
+    expect(result.hasRoutine).toBe(true);
+    const sets = (await db.sets.orderBy('id').toArray()).sort((a, b) => a.workoutId - b.workoutId || a.exerciseId.localeCompare(b.exerciseId) || a.n - b.n);
+    expect(sets.map((s) => [s.exerciseId, s.n, s.reps, s.value, s.unit])).toEqual([
+      ['bench', 1, 8, 82.5, 'kg'], ['bench', 2, 8, 82.5, 'kg'], ['lat', 1, 12, 20, 'lbx2'], ['hack', 1, 10, 3, 'plates'],
+    ]);
+    const workouts = await db.workouts.orderBy('id').toArray();
+    expect(workouts.map((w) => [w.date, w.cycle, w.variant, w.block])).toEqual([
+      ['2026-06-11', 2, 'U1', 'Upper 1'], ['2026-06-12', 2, 'L1', 'Lower 1'],
+    ]);
+    expect(w1).toBeGreaterThan(0);
+  });
+
+  it('still imports the older Value + Unit + Block layout', async () => {
+    const file = await workbookFile({
+      Sets: [{ Date: '2026-06-09', Exercise: 'Bench Press', Block: 'Upper 1', Set: 1, Value: 50, Unit: 'lb', Reps: 8 }],
+    });
+    await importXLSX(file);
+    const [set] = await db.sets.toArray();
+    expect(set).toMatchObject({ value: 50, unit: 'lb', reps: 8 });
+  });
+});
+
+describe('JSON backup routine', () => {
+  it('carries the active routine, which the routine importer accepts', async () => {
+    await db.periods.add({ startDate: '2026-06-01', cycleGoal: 6, status: 'active', rotationPos: 0, cycle: 1 });
+    await db.exercises.bulkPut([
+      { id: 'bench', name: 'Bench Press', muscle: 'Chest', unit: 'kg', active: true, order: 0 },
+      { id: 'hack', name: 'Hack Squat', muscle: 'Quads', unit: 'plates', active: true, order: 1 },
+    ]);
+    await db.routineVariants.bulkPut([
+      { code: 'U1@p1r1', order: 0, name: 'Upper 1', kind: 'Upper', exerciseIds: ['bench'], exerciseUnits: { bench: 'lb' }, ownerPeriodId: 1 },
+      { code: 'L1', order: 1, name: 'Lower 1', kind: 'Lower', exerciseIds: ['hack'] },
+    ]);
+    let blob;
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((value) => { blob = value; return 'blob:json'; });
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const realCreate = document.createElement.bind(document);
+    vi.spyOn(document, 'createElement').mockImplementation((tag) => (tag === 'a' ? { click() {} } : realCreate(tag)));
+    await exportJSON();
+    vi.restoreAllMocks();
+
+    const dump = JSON.parse(await blob.text());
+    expect(dump.routine.variants.map((v) => v.code)).toEqual(['L1']); // the owned U1 is not part of the active period's seed routine
+    const decoded = await decodeRoutineFile(new File([blob], 'gymtrack-backup.json'), await db.exercises.toArray());
+    expect(decoded.valid).toBe(true);
+    expect(decoded.draft.variants[0].exercises[0]).toMatchObject({ name: 'Hack Squat', unit: 'plates' });
+  });
+
+  it('rebuilds the routine for older backups that have no routine key', async () => {
+    const dump = {
+      app: 'gymtrack', schema: 2, periods: [{ id: 1, status: 'active', startDate: '2026-06-01' }],
+      exercises: [{ id: 'bench', name: 'Bench Press', muscle: 'Chest', unit: 'kg' }],
+      routineVariants: [{ code: 'U1', order: 0, name: 'Upper 1', kind: 'Upper', exerciseIds: ['bench'] }],
+      sets: [], workouts: [],
+    };
+    const decoded = await decodeRoutineFile(new File([JSON.stringify(dump)], 'old.json'), [{ id: 'bench', name: 'Bench Press', muscle: 'Chest', unit: 'kg' }]);
+    expect(decoded.valid).toBe(true);
+    expect(decoded.draft.variants[0]).toMatchObject({ code: 'U1', name: 'Upper 1' });
   });
 });

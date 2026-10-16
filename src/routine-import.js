@@ -1,4 +1,5 @@
 import { normalizeRoutineRows, validateRoutineDraft } from './routine-draft.js';
+import { routineDraftFromBackup, routineDraftToRows } from './routine-export.js';
 
 const fail = (code, message, path = '') => ({ valid: false, draft: null, errors: [{ code, path, message }] });
 const blank = row => row.every(value => String(value ?? '').trim() === '');
@@ -68,6 +69,8 @@ export async function decodeRoutineFile(file, catalog, { sheetName } = {}) {
       const value = JSON.parse(await file.text());
       if (Array.isArray(value)) return normalizeRoutineRows(value, catalog);
       if (value && value.schemaVersion === 1 && Array.isArray(value.variants)) return validateRoutineDraft(value, catalog);
+      // a GymTrack JSON backup: use its routine, matched to the catalog by exercise name like any other file
+      if (value && value.app === 'gymtrack') return normalizeRoutineRows(routineDraftToRows(routineDraftFromBackup(value)), catalog);
       return fail('unsupported-json-shape', 'JSON must be a row array or schemaVersion 1 routine draft.');
     }
     const XLSX = await import('xlsx');
