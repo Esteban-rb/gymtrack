@@ -6,7 +6,7 @@ import { useStore } from '../store.js';
 import { useShallow } from 'zustand/react/shallow';
 import { MUSCLES } from '../db.js';
 import * as M from '../metrics.js';
-import { GIcon, ProgressBar, Stepper, Sheet, LineChart, Sparkline, Donut, DONUT_COLORS, SectionHead, EmptyState } from '../components.jsx';
+import { GIcon, ProgressBar, Stepper, Sheet, LineChart, Sparkline, Donut, PolarChart, DONUT_COLORS, SectionHead, EmptyState } from '../components.jsx';
 import BodyMap from '../bodymap.jsx';
 import { useT } from '../i18n.js';
 
@@ -164,6 +164,11 @@ export default function MetricsScreen({ focus }) {
   }, [focus, exMap, progress]);
 
   const split = useMemo(() => M.muscleVolumeSplit(logs, exMap), [logs, exMap]);
+  // sets per muscle across the whole block; every muscle in the catalog is listed so untrained ones read 0
+  const setCounts = useMemo(() => {
+    const muscles = [...new Set(exercises.filter((e) => e.active !== false).map((e) => e.muscle))];
+    return M.muscleSetCounts(logs, exMap, muscles);
+  }, [logs, exMap, exercises]);
   const cumTonnage = useMemo(() => { let t = 0; for (let c = 1; c <= cycle; c++) t += M.cycleVolume(logs, c); return t; }, [logs, cycle]);
 
   // average medal level per muscle group, for the body map
@@ -212,7 +217,7 @@ export default function MetricsScreen({ focus }) {
       <div className="gt-scroll" style={{ height: '100%', padding: '18px 16px 150px' }}>
         <h1 className="gt-h1" style={{ marginBottom: 4 }}>{t('metrics.title')}</h1>
         <div className="gt-sub">{t('metrics.byCycle', { cycle })}</div>
-        <SectionHead>{t('metrics.medalMap')}</SectionHead>
+        <SectionHead big>{t('metrics.medalMap')}</SectionHead>
         <MetricCard>
           <BodyMap levels={medalByMuscle} />
           <div className="gt-micro" style={{ marginTop: 12, textAlign: 'center' }}>{t('metrics.medalMapNote')}</div>
@@ -244,7 +249,7 @@ export default function MetricsScreen({ focus }) {
         </MetricCard>
       </div>
 
-      <SectionHead>{t('metrics.tonnagePerCycle')}</SectionHead>
+      <SectionHead big>{t('metrics.tonnagePerCycle')}</SectionHead>
       <MetricCard>
         <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
           <button className={'gt-chip' + (volMode === 'tonnage' ? ' on' : '')} aria-pressed={volMode === 'tonnage'} onClick={() => setVolMode('tonnage')}>{t('metrics.tonnage')}</button>
@@ -265,7 +270,7 @@ export default function MetricsScreen({ focus }) {
 
       {muscleList.length > 0 && (
         <>
-          <SectionHead>{t('metrics.muscleProgress')}</SectionHead>
+          <SectionHead big>{t('metrics.muscleProgress')}</SectionHead>
           {muscleList.map(({ muscle, data }) => (
             <MuscleCard key={muscle} muscle={muscle} data={data} open={effOpen === muscle}
               focusExercise={focusEx}
@@ -274,13 +279,13 @@ export default function MetricsScreen({ focus }) {
         </>
       )}
 
-      <SectionHead>{t('metrics.medalMap')}</SectionHead>
+      <SectionHead big>{t('metrics.medalMap')}</SectionHead>
       <MetricCard>
         <BodyMap levels={medalByMuscle} />
         <div className="gt-micro" style={{ marginTop: 12, textAlign: 'center' }}>{t('metrics.medalMapNote')}</div>
       </MetricCard>
 
-      <SectionHead>{t('metrics.volumeSplit')}</SectionHead>
+      <SectionHead big>{t('metrics.volumeSplit')}</SectionHead>
       <MetricCard>
         <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
           <Donut ariaLabel={t('metrics.volumeSplitAria', { list: split.slice(0, 6).map((item) => muscleName(item.muscle)).join(', ') })} data={split.slice(0, 6)} />
@@ -301,7 +306,15 @@ export default function MetricsScreen({ focus }) {
         </div>
       </MetricCard>
 
-      <SectionHead right={<button className="gt-chip" onClick={() => { setBwDraft(store.profile?.bodyweightKg || 70); setShowBwSheet(true); }}>{t('metrics.logBody')}</button>}>{t('metrics.bodyWeight')}</SectionHead>
+      <SectionHead big>{t('metrics.setsBalance')}</SectionHead>
+      <MetricCard>
+        <PolarChart
+          ariaLabel={t('metrics.setsBalanceAria', { list: setCounts.map((c) => `${muscleName(c.muscle)} ${c.sets}`).join(', ') })}
+          data={setCounts.map((c) => ({ label: muscleName(c.muscle), value: c.sets }))} />
+        <div className="gt-micro" style={{ marginTop: 8 }}>{t('metrics.setsBalanceNote')}</div>
+      </MetricCard>
+
+      <SectionHead big right={<button className="gt-chip" onClick={() => { setBwDraft(store.profile?.bodyweightKg || 70); setShowBwSheet(true); }}>{t('metrics.logBody')}</button>}>{t('metrics.bodyWeight')}</SectionHead>
       <MetricCard>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
           <div className="gt-display" style={{ fontSize: 32 }}>{bodyweight.length ? bodyweight[bodyweight.length - 1].kg : '—'}<span style={{ fontSize: 15, color: 'var(--text-3)', fontWeight: 500 }}> kg</span></div>

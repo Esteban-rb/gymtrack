@@ -1,7 +1,7 @@
 // GymTrack — Home: the at-a-glance dashboard. Three widgets (today's session, a record of
 // the day, a progress chart) plus the streak sheet. Everything "random" here is seeded by
 // the date + the variant on deck, so a widget stays put all day and rotates tomorrow.
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store.js';
 import { useShallow } from 'zustand/react/shallow';
 import { exerciseHistory, pickDaily, streakInfo, trainedDates } from '../metrics.js';
@@ -35,7 +35,8 @@ function StreakSheet({ open, onClose, dates }) {
   const { t, date, dateParts } = useT();
   const info = useMemo(() => streakInfo(dates), [dates]);
   const set = useMemo(() => new Set(dates), [dates]);
-  const WEEKS = 12;
+  const WEEKS = 53;
+  const CELL = 13, GAP = 4;
   // columns = weeks (oldest → current), rows = Mon..Sun, like the reference dot grid
   const grid = useMemo(() => {
     const start = addDays(mondayOf(new Date()), -7 * (WEEKS - 1));
@@ -48,6 +49,9 @@ function StreakSheet({ open, onClose, dates }) {
     return m === prev ? '' : m;
   });
   const today = isoDate();
+  const yearCount = useMemo(() => grid.flat().filter((d) => set.has(d)).length, [grid, set]);
+  const scrollRef = useRef(null);
+  useEffect(() => { if (open && scrollRef.current) scrollRef.current.scrollLeft = scrollRef.current.scrollWidth; }, [open]);
 
   return (
     <Sheet open={open} onClose={onClose} title={t('home.streak.title')}>
@@ -65,33 +69,47 @@ function StreakSheet({ open, onClose, dates }) {
           : (info.lastDate ? t('home.streak.none', { date: date(info.lastDate) }) : t('home.streak.first'))}
       </div>
 
-      <div className="gt-label" style={{ margin: '20px 0 10px' }}>{t('home.streak.lastWeeks', { n: WEEKS })}</div>
-      <div className="gt-scroll-x" style={{ paddingBottom: 4 }}>
-        <div style={{ minWidth: 260 }}>
-          <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-            {monthLabels.map((m, i) => <div key={i} className="gt-micro" style={{ width: 12, flexShrink: 0, fontSize: 9.5 }}>{m}</div>)}
-          </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {grid.map((week, c) => (
-              <div key={c} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {week.map((d) => {
-                  const on = set.has(d);
-                  const future = d > today;
-                  return <div key={d} title={d} style={{
-                    width: 12, height: 12, borderRadius: 999,
-                    background: on ? 'var(--accent)' : 'var(--input-bg)',
-                    opacity: future ? 0.35 : 1,
-                    outline: d === today ? '1.5px solid var(--border-strong)' : undefined,
-                    outlineOffset: 1.5,
-                  }} />;
-                })}
+      <div style={{ margin: '20px 0 10px', fontSize: 15, fontWeight: 600 }}>
+        {t('home.streak.lastYear', { n: yearCount })}
+      </div>
+      <div className="gt-card" style={{ padding: '14px 14px 12px', borderRadius: 14 }}>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: GAP, paddingTop: 16 + GAP, flexShrink: 0 }}>
+            {[0, 1, 2, 3, 4, 5, 6].map((r) => (
+              <div key={r} className="gt-micro" style={{ height: CELL, lineHeight: `${CELL}px`, fontSize: 11 }}>
+                {r % 2 === 0 ? dateParts(grid[0][r], { weekday: 'short' }) : ''}
               </div>
             ))}
           </div>
+          <div ref={scrollRef} className="gt-scroll-x" style={{ flex: 1, paddingBottom: 4 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${WEEKS}, ${CELL}px)`, gap: GAP, marginBottom: GAP, height: 16 }}>
+              {monthLabels.map((m, i) => <div key={i} className="gt-micro" style={{ fontSize: 11, whiteSpace: 'nowrap', overflow: 'visible' }}>{m}</div>)}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${WEEKS}, ${CELL}px)`, gap: GAP }}>
+              {grid.map((week, c) => (
+                <div key={c} style={{ display: 'flex', flexDirection: 'column', gap: GAP }}>
+                  {week.map((d) => {
+                    const on = set.has(d);
+                    const future = d > today;
+                    return <div key={d} title={d} style={{
+                      width: CELL, height: CELL, borderRadius: 3,
+                      background: on ? 'var(--fill)' : 'var(--input-bg)',
+                      opacity: future ? 0.35 : 1,
+                      outline: d === today ? '1.5px solid var(--border-strong)' : undefined,
+                      outlineOffset: 1,
+                    }} />;
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
-      </div>
-      <div className="gt-micro" style={{ marginTop: 12, lineHeight: 1.5 }}>
-        {t('home.streak.note')}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5, marginTop: 10 }}>
+          <span className="gt-micro">{t('home.streak.less')}</span>
+          <div style={{ width: 11, height: 11, borderRadius: 2, background: 'var(--input-bg)' }} />
+          <div style={{ width: 11, height: 11, borderRadius: 2, background: 'var(--fill)' }} />
+          <span className="gt-micro">{t('home.streak.more')}</span>
+        </div>
       </div>
     </Sheet>
   );
@@ -160,16 +178,13 @@ export default function HomeScreen({ onNavigate }) {
 
   return (
     <div className="gt-scroll" style={{ height: '100%', padding: '18px 16px 150px' }}>
-      {/* Header: title + settings / streak */}
+      {/* Header: title + streak */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 18 }}>
         <div style={{ minWidth: 0 }}>
           <h1 className="gt-h1" style={{ fontSize: 30 }}>{t('home.title')}</h1>
           <div className="gt-sub" style={{ marginTop: 2 }}>{dateParts(isoDate(), { weekday: 'long', month: 'short', day: 'numeric' })}</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-          <button className="gt-iconbtn" aria-label={t('home.openSettings')} onClick={() => onNavigate('settings')}>
-            <GIcon name="gear" size={19} />
-          </button>
           <button className="gt-iconbtn" aria-label={t('home.openStreak')} onClick={() => setStreakOpen(true)}
             style={{ position: 'relative', color: streak.current > 0 ? 'var(--accent)' : 'var(--text)' }}>
             <GIcon name="flame" size={19} />

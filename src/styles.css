@@ -11,41 +11,55 @@ html, body {
 
 .gt-app {
   /* ---- Dark (default) ---- */
-  --bg: #0B0C0E;
-  --bg-grad: radial-gradient(120% 80% at 50% -10%, #1A1D22 0%, #0B0C0E 60%);
-  --surface: rgba(255, 255, 255, 0.055);
+  --bg: #000000;   /* negro puro: en OLED los píxeles se apagan */
+  --bg-grad: none;
+  --surface: rgba(236, 232, 223, 0.055);
   --surface-solid: #16181D;
-  --surface-2: rgba(255, 255, 255, 0.09);
-  --border: rgba(255, 255, 255, 0.09);
-  --border-strong: rgba(255, 255, 255, 0.16);
-  --text: #F4F5F7;
+  --surface-2: rgba(236, 232, 223, 0.09);
+  --border: rgba(236, 232, 223, 0.09);
+  --border-strong: rgba(236, 232, 223, 0.16);
+  --text: #ECE8DF;
+  --paper: #F3EFE6;   /* el "blanco" del modo oscuro: hueso pálido */
+  --ring-in: 3px; --ring-out: 2px; --ring-color: var(--bg);   /* anillos decorativos; Temas los apaga (.no-rings) */
+  --fx-1: var(--accent); --fx-2: var(--accent); --fx-3: var(--accent);   /* paradas del degradado de gráficas y barras (iguales = color liso) */
+  --fill: linear-gradient(90deg, var(--fx-1), var(--fx-2), var(--fx-3));
+  --accent-bg: var(--accent);   /* relleno de la pestaña activa; los temas especiales lo cambian por un degradado */
+  --sel-bg: var(--sel-fill);
+  --sel-origin: border-box; --sel-clip: border-box; --sel-bw: 1px;   /* los degradados con borde propio (Nebulosa) los redefinen */
+  --sel-glow: 0 0 0 0 transparent;
+  --sel-fill: #ECE8DF;   /* botón seleccionado: hueso opaco con texto negro (oscuro) */
+  --sel-text: #000000;
   --text-2: #9BA1AB;
   --text-3: #686E78;
   --accent: #FF3B30;
   --accent-press: #E0301F;
-  --on-accent: #FFFFFF;
+  --on-accent: #F3EFE6;
   --accent-soft: rgba(255, 59, 48, 0.16);
   --success: #32D74B;
   --success-soft: rgba(50, 215, 75, 0.14);
   --warning: #FFD60A;
-  --chart-grid: rgba(255, 255, 255, 0.07);
-  --chart-muted: rgba(255, 255, 255, 0.22);
+  --chart-grid: rgba(236, 232, 223, 0.07);
+  --chart-muted: rgba(236, 232, 223, 0.22);
   /* donut/series palette (slot 1 = --accent) */
-  --chart-2: #FF8A5C; --chart-3: #FFC15C; --chart-4: rgba(255, 255, 255, 0.22);
+  --chart-2: #FF8A5C; --chart-3: #FFC15C; --chart-4: rgba(236, 232, 223, 0.22);
   --chart-5: #8B93A1; --chart-6: #5C6470; --chart-7: #3E444E; --chart-8: #2C3138;
   --tabbar-bg: #131519;   /* opaco: el color que daba el blur al componer sobre el fondo */
   --tabbar-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   --sheet-bg: #1A1C21;
-  --input-bg: rgba(255, 255, 255, 0.07);
-  --shadow-card: 0 1px 0 rgba(255,255,255,0.04) inset;
-  --bronze: #CD8A52; --silver: #C2CBD6; --gold: #F5C242; --platinum: #AFE6DC; --diamond: #6FD2FF;
+  --input-bg: rgba(236, 232, 223, 0.07);
+  --shadow-card: 0 1px 0 rgba(236, 232, 223,0.04) inset;
+  --bronze: #CD8A52; --silver: #C2CBD6; --gold: #F5C242; --platinum: #AFE6DC; --diamond: #6FD2FF; --obsidian: #8B7BB8;
 
   font-family: 'Manrope', system-ui, sans-serif;
   color: var(--text);
   background: var(--bg-grad), var(--bg);
   -webkit-font-smoothing: antialiased;
 }
+.gt-app.no-rings { --ring-in: 0px; --ring-out: 0px; --ring-color: transparent; }
 .gt-app.light {
+  --paper: #FFFFFF;
+  --sel-fill: var(--accent);   /* claro: el color de acento, opaco, con su texto de contraste */
+  --sel-text: var(--on-accent);
   --bg: #F1F2F5;
   --bg-grad: radial-gradient(120% 80% at 50% -10%, #FFFFFF 0%, #F1F2F5 60%);
   --surface: #FFFFFF;
@@ -77,37 +91,33 @@ html, body {
    charts included, so nothing colored survives. Deeper blacks and flatter surfaces than
    the default dark theme, matching the reference design. ---- */
 .gt-app.mono {
-  --bg: #08090A;
-  --bg-grad: radial-gradient(120% 80% at 50% -10%, #191B1F 0%, #08090A 62%);
-  --surface: rgba(255, 255, 255, 0.05);
+  --bg: #000000;
+  --bg-grad: none;
+  --surface: rgba(236, 232, 223, 0.05);
   --surface-solid: #141518;
-  --surface-2: rgba(255, 255, 255, 0.08);
-  --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.17);
-  --text: #F7F8FA;
+  --surface-2: rgba(236, 232, 223, 0.08);
+  --border: rgba(236, 232, 223, 0.08);
+  --border-strong: rgba(236, 232, 223, 0.17);
+  --text: #ECE8DF;
   --text-2: #9EA3AB;
   --text-3: #61656D;
-  --accent: #F7F8FA;
+  --accent: #ECE8DF;
   --accent-press: #C6CBD3;
   --on-accent: #0C0D0F;
-  --accent-soft: rgba(255, 255, 255, 0.12);
-  --success: #E7E9ED;
-  --success-soft: rgba(255, 255, 255, 0.10);
-  --warning: #B7BCC4;
-  --chart-grid: rgba(255, 255, 255, 0.06);
-  --chart-muted: rgba(255, 255, 255, 0.20);
-  --chart-2: #D2D6DC; --chart-3: #AEB3BB; --chart-4: rgba(255, 255, 255, 0.20);
+  --accent-soft: rgba(236, 232, 223, 0.12);
+  --chart-grid: rgba(236, 232, 223, 0.06);
+  --chart-muted: rgba(236, 232, 223, 0.20);
+  --chart-2: #D2D6DC; --chart-3: #AEB3BB; --chart-4: rgba(236, 232, 223, 0.20);
   --chart-5: #787D85; --chart-6: #5A5E65; --chart-7: #40444A; --chart-8: #2A2D32;
   --tabbar-bg: #131417;
   --tabbar-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
   --sheet-bg: #161719;
-  --input-bg: rgba(255, 255, 255, 0.06);
-  --bronze: #5F646C; --silver: #878D96; --gold: #C6CBD3; --platinum: #E2E5EA; --diamond: #FFFFFF;
+  --input-bg: rgba(236, 232, 223, 0.06);
 }
 /* flatter, squarer cards — the reference look, without the accent-tinted glass */
 .gt-app.mono .gt-card {
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.035) 55%, rgba(255, 255, 255, 0.02));
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(236, 232, 223, 0.04);
+  border: 1px solid rgba(236, 232, 223, 0.08);
 }
 .gt-app.light.mono {
   --bg: #FFFFFF;
@@ -124,9 +134,6 @@ html, body {
   --accent-press: #000000;
   --on-accent: #FFFFFF;
   --accent-soft: rgba(12, 13, 15, 0.09);
-  --success: #14161A;
-  --success-soft: rgba(12, 13, 15, 0.08);
-  --warning: #5A5E65;
   --chart-grid: rgba(12, 13, 15, 0.08);
   --chart-muted: rgba(12, 13, 15, 0.22);
   --chart-2: #4A4E55; --chart-3: #6E737B; --chart-4: rgba(12, 13, 15, 0.22);
@@ -134,7 +141,6 @@ html, body {
   --tabbar-bg: #FFFFFF;
   --sheet-bg: #FFFFFF;
   --input-bg: #F0F1F3;
-  --bronze: #B4B9C1; --silver: #9096A0; --gold: #5A5E65; --platinum: #35383D; --diamond: #0C0D0F;
 }
 .gt-app.light.mono .gt-card {
   background: #FFFFFF;
@@ -161,8 +167,8 @@ html, body {
 /* ---- Card — soft translucent sheet with hairline light edge.
    Sin backdrop-filter: apilar blurs por tarjeta impide mantener 60/120fps al hacer scroll. ---- */
 .gt-card {
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.045) 50%, rgba(255, 255, 255, 0.025));
-  border: 1px solid rgba(255, 255, 255, 0.13);
+  background: rgba(236, 232, 223, 0.05);
+  border: 1px solid rgba(236, 232, 223, 0.13);
   border-radius: 22px;
   box-shadow: none;
 }
@@ -170,6 +176,40 @@ html, body {
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0.45));
   border: 1px solid rgba(255, 255, 255, 0.85);
   box-shadow: 0 8px 28px rgba(20, 22, 26, 0.07);
+}
+
+/* ---- Tab bar — liquid glass: translucent body, blur + saturation of what scrolls behind,
+   specular rim (top/bottom inset highlights) and a soft diagonal sheen. One blurred element only. ---- */
+.gt-tabbar {
+  background: linear-gradient(135deg, rgba(236, 232, 223, 0.09), rgba(236, 232, 223, 0.03) 45%, rgba(236, 232, 223, 0.06));
+  border: 1px solid rgba(236, 232, 223, 0.10);
+  box-shadow:
+    inset 0 1px 0 rgba(236, 232, 223, 0.16),
+    inset 0 -1px 0 rgba(236, 232, 223, 0.03),
+    0 10px 30px rgba(0, 0, 0, 0.40);
+}
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .gt-tabbar {
+    -webkit-backdrop-filter: blur(18px) saturate(180%);
+    backdrop-filter: blur(18px) saturate(180%);
+  }
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .gt-tabbar { background: var(--tabbar-bg); }
+}
+.gt-app.light .gt-tabbar {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.42) 45%, rgba(255, 255, 255, 0.62));
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    inset 0 -1px 0 rgba(20, 22, 26, 0.06),
+    0 10px 30px rgba(20, 22, 26, 0.14);
+}
+
+/* Active tab: the fill runs under its 3px border (origin/clip come from the theme, so gradients start at the
+   very edge and never tile into the border strip). */
+.gt-tabbar .gt-tab-on {
+  background: var(--accent-bg); background-origin: var(--sel-origin); background-clip: var(--sel-clip);
 }
 
 /* ---- Buttons — flat translucent fill, no shine ---- */
@@ -185,12 +225,25 @@ html, body {
 .gt-btn-primary {
   background: color-mix(in srgb, var(--accent) 62%, transparent);
   color: var(--on-accent);
-  border: 1px solid color-mix(in srgb, var(--accent) 60%, rgba(255, 255, 255, 0.2));
+  border: 1px solid color-mix(in srgb, var(--accent) 62%, transparent);
+  background-clip: padding-box;
   box-shadow: none;
 }
+.gt-app.light .gt-btn-primary {   /* a 62% tint under white text is too faint on a white page */
+  background: color-mix(in srgb, var(--accent) 90%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 90%, transparent);
+}
+/* End-mesocycle / change-routine buttons: solid red whatever the accent. With the red accent they turn
+   bone in the dark theme and black in the light one. Fill and border are the same color; black text on red keeps 5.9:1 contrast. */
+.gt-btn-end {
+  background: #FF3B30; border: 1px solid #FF3B30; color: #000000;
+  box-shadow: inset 0 0 0 var(--ring-in) var(--bg), 0 0 0 var(--ring-out) #FF3B30;
+}
+.gt-btn-end.black { background: #ECE8DF; border-color: #ECE8DF; color: #000000; box-shadow: inset 0 0 0 var(--ring-in) var(--bg), 0 0 0 var(--ring-out) #ECE8DF; }
+.gt-app.light .gt-btn-end.black { background: #000000; border-color: #000000; color: #F3EFE6; box-shadow: inset 0 0 0 var(--ring-in) var(--bg), 0 0 0 var(--ring-out) #000000; }
 .gt-btn-primary:active { background: color-mix(in srgb, var(--accent-press) 75%, transparent); }
 .gt-btn-ghost {
-  background: rgba(255, 255, 255, 0.055);
+  background: rgba(236, 232, 223, 0.055);
   color: var(--text);
   border: 1px solid var(--border-strong);
   box-shadow: none;
@@ -203,7 +256,7 @@ html, body {
 
 .gt-iconbtn {
   width: 44px; height: 44px; min-width: 44px; border-radius: 999px; border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(236, 232, 223, 0.05);
   box-shadow: none;
   color: var(--text); display: flex; align-items: center; justify-content: center;
   cursor: pointer; transition: transform 0.12s ease; -webkit-tap-highlight-color: transparent;
@@ -222,7 +275,14 @@ html, body {
   transition: all 0.15s ease; white-space: nowrap; -webkit-tap-highlight-color: transparent;
   min-height: 44px; min-width: 44px;
 }
-.gt-chip.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.gt-chip.on {
+  /* selected = a fully opaque fill (a gradient in the special themes) whose border is the same fill:
+     the border is transparent and the background runs under it, so they can never differ. */
+  background: var(--sel-bg); background-origin: var(--sel-origin); background-clip: var(--sel-clip);
+  border-width: var(--sel-bw); border-color: transparent; color: var(--sel-text);
+  /* same double ring as the selected tab: a page-colored ring inside, a thin ring of the fill outside */
+  box-shadow: inset 0 0 0 var(--ring-in) var(--bg), 0 0 0 var(--ring-out) var(--sel-fill), var(--sel-glow);
+}
 
 :where(button, input, select, textarea, [role="button"]):focus-visible {
   outline: 3px solid color-mix(in srgb, var(--accent) 72%, white);
@@ -257,3 +317,71 @@ html, body {
     transition-duration: 0.01ms !important;
   }
 }
+
+
+/* ---- Special themes: silver / gold / platinum. Gradient on the selected buttons (chips, active tab),
+   black text for contrast (>= 5:1 over the whole gradient), a matching solid accent for the rest. ---- */
+.gt-app.fx-silver, .gt-app.light.fx-silver {
+  --accent: #C2CBD6; --accent-press: #9AA3AF; --on-accent: #000000; --accent-soft: rgba(194, 203, 214, 0.18);
+  --accent-bg: linear-gradient(135deg, #8A8E94 0%, #B9BCC1 55%, #E3E5E8 100%);
+  --sel-bg: var(--accent-bg); --sel-fill: #B9BCC1; --sel-text: #000000;
+  --sel-glow: 0 0 14px rgba(200, 204, 210, 0.28);
+}
+.gt-app.fx-gold, .gt-app.light.fx-gold {
+  --accent: #F5C242; --accent-press: #D4A50A; --on-accent: #000000; --accent-soft: rgba(245, 194, 66, 0.18);
+  --accent-bg: linear-gradient(135deg, #A07E10 0%, #D8A90C 50%, #FAD02C 100%);
+  --sel-bg: var(--accent-bg); --sel-fill: #D8A90C; --sel-text: #000000;
+  --sel-glow: 0 0 16px rgba(250, 208, 44, 0.45);
+}
+.gt-app.fx-platinum, .gt-app.light.fx-platinum {
+  --accent: #8FC3EC; --accent-press: #6F9FC8; --on-accent: #000000; --accent-soft: rgba(143, 195, 236, 0.18);
+  --accent-bg: linear-gradient(135deg, #6F8DA8 0%, #8DB1CE 50%, #A7D3F5 100%);
+  --sel-bg: var(--accent-bg); --sel-fill: #8DB1CE; --sel-text: #000000;
+  --sel-glow: 0 0 14px rgba(143, 195, 236, 0.32);
+}
+/* ---- Nebula (outlined): the selected button keeps the page's own tone and only gains an iridescent edge.
+   Dark mode: dark fill + white text/icons. Light mode: white fill + dark text. ---- */
+.gt-app.fx-nebula {
+  --accent: #C9CCE0; --accent-press: #C9CCE0; --on-accent: #000000; --accent-soft: rgba(150, 156, 190, 0.18);
+  --accent-bg: linear-gradient(180deg, #26262A 0%, #0C0C0E 100%) padding-box, conic-gradient(from 0deg, #6E7390 0deg, #F0B982 38deg, #B9C0E8 75deg, #5A5E78 130deg, #E6E6EE 180deg, #FFFFFF 212deg, #8A8FA8 250deg, #4A4C58 290deg, #AEB4D8 330deg, #6E7390 360deg) border-box;
+  --sel-bg: var(--accent-bg); --sel-fill: #AEB4D8; --sel-text: #FFFFFF; --tab-on-text: #FFFFFF;
+  --sel-origin: padding-box, border-box; --sel-clip: padding-box, border-box; --sel-bw: 2px;
+  --sel-glow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  --ring-in: 0px; --ring-out: 0px; --ring-color: transparent;
+}
+.gt-app.light.fx-nebula {
+  --accent: #5B6082; --accent-press: #5B6082; --on-accent: #FFFFFF; --accent-soft: rgba(150, 156, 190, 0.18);
+  --accent-bg: linear-gradient(180deg, #FFFFFF 0%, #EDEEF2 100%) padding-box, conic-gradient(from 0deg, #7A7F9C 0deg, #D98C3F 38deg, #8E96C8 75deg, #4F5470 130deg, #9CA1B8 180deg, #C9CCDD 212deg, #6D7290 250deg, #3E404C 290deg, #7F86B0 330deg, #7A7F9C 360deg) border-box;
+  --sel-bg: var(--accent-bg); --sel-fill: #AEB4D8; --sel-text: #0C0D0F; --tab-on-text: #0C0D0F;
+  --sel-origin: padding-box, border-box; --sel-clip: padding-box, border-box; --sel-bw: 2px;
+  --sel-glow: 0 4px 14px rgba(20, 22, 26, 0.16);
+  --ring-in: 0px; --ring-out: 0px; --ring-color: transparent;
+}
+/* ---- Nebula (filled): the opposite tone. Dark mode: light fill + dark text. Light mode: dark fill + white text. ---- */
+.gt-app.fx-nebula-fill {
+  --accent: #C9CCE0; --accent-press: #C9CCE0; --on-accent: #000000; --accent-soft: rgba(150, 156, 190, 0.18);
+  --accent-bg: linear-gradient(180deg, #F6F3EC 0%, #D8D4CA 100%) padding-box, conic-gradient(from 0deg, #6E7390 0deg, #F0B982 38deg, #B9C0E8 75deg, #5A5E78 130deg, #E6E6EE 180deg, #FFFFFF 212deg, #8A8FA8 250deg, #4A4C58 290deg, #AEB4D8 330deg, #6E7390 360deg) border-box;
+  --sel-bg: var(--accent-bg); --sel-fill: #AEB4D8; --sel-text: #0C0D0F; --tab-on-text: #0C0D0F;
+  --sel-origin: padding-box, border-box; --sel-clip: padding-box, border-box; --sel-bw: 2px;
+  --sel-glow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  --ring-in: 0px; --ring-out: 0px; --ring-color: transparent;
+}
+.gt-app.light.fx-nebula-fill {
+  --accent: #5B6082; --accent-press: #5B6082; --on-accent: #FFFFFF; --accent-soft: rgba(150, 156, 190, 0.18);
+  --accent-bg: linear-gradient(180deg, #26262A 0%, #0C0C0E 100%) padding-box, conic-gradient(from 0deg, #7A7F9C 0deg, #D98C3F 38deg, #8E96C8 75deg, #4F5470 130deg, #9CA1B8 180deg, #C9CCDD 212deg, #6D7290 250deg, #3E404C 290deg, #7F86B0 330deg, #7A7F9C 360deg) border-box;
+  --sel-bg: var(--accent-bg); --sel-fill: #AEB4D8; --sel-text: #FFFFFF; --tab-on-text: #FFFFFF;
+  --sel-origin: padding-box, border-box; --sel-clip: padding-box, border-box; --sel-bw: 2px;
+  --sel-glow: 0 4px 14px rgba(20, 22, 26, 0.22);
+  --ring-in: 0px; --ring-out: 0px; --ring-color: transparent;
+}
+
+/* ---- Special themes also drive charts and bars: --fx-1..3 are the gradient stops (SVG charts read them
+   one by one, HTML bars read --fill). Light mode gets deeper stops so the light end stays visible on white. ---- */
+.gt-app.fx-silver { --fx-1: #8A8E94; --fx-2: #B9BCC1; --fx-3: #E3E5E8; }
+.gt-app.fx-gold { --fx-1: #A07E10; --fx-2: #D8A90C; --fx-3: #FAD02C; }
+.gt-app.fx-platinum { --fx-1: #6F8DA8; --fx-2: #8DB1CE; --fx-3: #A7D3F5; }
+.gt-app.fx-nebula, .gt-app.fx-nebula-fill { --fx-1: #7E86B8; --fx-2: #C9CCE0; --fx-3: #F0C9A0; }
+.gt-app.light.fx-silver { --fx-1: #6A6E74; --fx-2: #92969C; --fx-3: #B9BCC1; }
+.gt-app.light.fx-gold { --fx-1: #8F6F0C; --fx-2: #C79A0A; --fx-3: #E8B923; }
+.gt-app.light.fx-platinum { --fx-1: #5F7F9C; --fx-2: #7DA2C2; --fx-3: #9BC5E8; }
+.gt-app.light.fx-nebula, .gt-app.light.fx-nebula-fill { --fx-1: #3E4268; --fx-2: #6B719A; --fx-3: #B0845C; }

@@ -1,11 +1,15 @@
 // GymTrack — Settings: mesocycle, profile, rotation editor, medal thresholds, units, backup, theme.
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useStore, AUTO_FINISH_MIN_SETS } from '../store.js';
 import { useShallow } from 'zustand/react/shallow';
 import { MUSCLES } from '../db.js';
 import { exportJSON, exportXLSX, importJSON, importXLSX } from '../backup.js';
 import { GIcon, Stepper, UnitChips, Sheet, SectionHead } from '../components.jsx';
 import HistoryScreen from './History.jsx';
+import LibraryScreen from './Library.jsx';
+import Avatar, { randomAvatarSeed, resizePhoto } from '../avatar.jsx';
+import ColorPicker from '../colorpicker.jsx';
+import { isoDate, addDays, parseISO } from '../calc.js';
 import { useT } from '../i18n.js';
 
 // v2 accent palette (from the Claude Design handoff); first entry = default red
@@ -21,6 +25,20 @@ function SettingRow({ label, sub, right, onClick, ariaLabel }) {
       </div>
       {right || null}
     </Tag>
+  );
+}
+
+/** Destructive-style action: one click asks for confirmation inline, a second one runs it. */
+function ConfirmButton({ label, confirmText, className, open, setOpen, onConfirm, t, disabled = false }) {
+  if (!open) return <button type="button" className={className} disabled={disabled} style={{ width: '100%', minHeight: 46, fontSize: 13.5 }} onClick={() => setOpen(true)}>{label}</button>;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+      <div className="gt-sub" style={{ lineHeight: 1.5 }}>{confirmText}</div>
+      <div style={{ display: 'flex', gap: 9 }}>
+        <button type="button" className="gt-btn gt-btn-ghost" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={() => setOpen(false)}>{t('common.cancel')}</button>
+        <button type="button" className={className} style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={async () => { setOpen(false); await onConfirm(); }}>{t('common.confirm')}</button>
+      </div>
+    </div>
   );
 }
 
@@ -41,14 +59,43 @@ export default function SettingsScreen({ onSetup, setupOpening = false } = {}) {
   const [medalSheet, setMedalSheet] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showLibrary, setShowLibrary] = useState(false);
+  const [showRoutine, setShowRoutine] = useState(false);
+  const [confirmRoutine, setConfirmRoutine] = useState(false);
+  const [colorSheet, setColorSheet] = useState(false);
+  const [profileSheet, setProfileSheet] = useState(null);  // { name, age } draft
+  const [measure, setMeasure] = useState(null);            // { kind: 'weight' | 'height', text }
+  const photoRef = useRef(null);
   const [importMsg, setImportMsg] = useState(null);
   const fileRef = useRef(null);
 
   const mono = profile.accent === 'mono';
+  const special = ['silver', 'gold', 'platinum', 'nebula', 'nebula-fill'].includes(profile.accent) ? profile.accent : null;   // gradient themes
   const autoFinish = profile.autoFinish !== false;   // opt-out, on by default
   const vmap = Object.fromEntries(variants.map((v) => [v.code, v]));
   const variant = vmap[routineVar] || variants[0] || { code: routineVar, name: '—', exerciseIds: [] };
   const exMap = Object.fromEntries(exercises.map((e) => [e.id, e]));
+
+  // an illustration is picked once, at random, and kept until the user adds a photo
+  useEffect(() => { if (profile.avatarSeed == null) store.updateProfile({ avatarSeed: randomAvatarSeed() }); }, [profile.avatarSeed]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // a cycle is one week of the rotation, so the block runs cycleGoal weeks from its start date
+  const endISO = period ? isoDate(addDays(parseISO(period.startDate), (period.cycleGoal || 6) * 7 - 1)) : null;
+  const daysLeft = endISO ? Math.max(0, Math.round((parseISO(endISO) - parseISO(isoDate())) / 86400000)) : null;
+  const accentHex = (profile.accent || ACCENTS[0]).toLowerCase();
+  const redAccent = !mono && accentHex === ACCENTS[0].toLowerCase();
+  const endBtn = 'gt-btn gt-btn-end' + (redAccent ? ' black' : '');
+
+  const saveMeasure = async () => {
+    const v = parseFloat((measure.text || '').replace(',', '.'));
+    if (!isNaN(v) && v > 0) await store.updateProfile(measure.kind === 'weight' ? { bodyweightKg: +v.toFixed(1) } : { heightCm: Math.round(v) });
+    setMeasure(null);
+  };
+  const onPhoto = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file) { try { await store.updateProfile({ photo: await resizePhoto(file) }); } catch { /* unreadable image: keep the current avatar */ } }
+  };
 
   const moveExercise = async (idx, dir) => {
     const ids = [...variant.exerciseIds];
@@ -92,80 +139,85 @@ export default function SettingsScreen({ onSetup, setupOpening = false } = {}) {
       <h1 className="gt-h1" style={{ marginBottom: 4 }}>{t('settings.title')}</h1>
       <div className="gt-sub">{t('settings.sub')}</div>
 
-      {onSetup ? <>
-        <SectionHead>{t('settings.setup')}</SectionHead>
-        <div className="gt-card" style={{ padding: 14 }}>
-          <div className="gt-sub" style={{ marginBottom: 10 }}>{t('settings.setupBody')}</div>
-          <button type="button" className="gt-btn gt-btn-ghost" disabled={setupOpening} aria-busy={setupOpening} onClick={onSetup}>{setupOpening ? t('settings.setupOpening') : t('settings.setupButton')}</button>
-        </div>
-      </> : null}
-
-      <SectionHead>{t('settings.mesocycle')}</SectionHead>
-      <div className="gt-card" style={{ padding: '4px 16px' }}>
-        <SettingRow label={t('settings.startDate')} right={<div className="gt-num" style={{ fontSize: 15 }}>{period ? date(period.startDate) : '—'}</div>} />
-        <SettingRow label={t('settings.currentCycle')} right={<div className="gt-num" style={{ fontSize: 15 }}>{period ? (period.cycle ?? 1) : '—'}</div>} />
-        <SettingRow label={t('settings.cycleGoal')} sub={t('settings.cycleGoalSub')} right={
-          <div style={{ display: 'flex', gap: 5 }}>
-            {[4, 6, 8].map((c) => <button key={c} className={'gt-chip' + ((period?.cycleGoal || 6) === c ? ' on' : '')} aria-pressed={(period?.cycleGoal || 6) === c} onClick={() => store.updatePeriod({ cycleGoal: c })}>{c}</button>)}
+      {/* ---- Profile ---- */}
+      <SectionHead big>{t('settings.profile')}</SectionHead>
+      <div className="gt-card" style={{ padding: 16 }}>
+        <button aria-label={t('settings.editProfile')} onClick={() => setProfileSheet({ name: profile.name || '', age: String(profile.age ?? '') })}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 14, background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'inherit', textAlign: 'left', cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}>
+          <Avatar photo={profile.photo} seed={profile.avatarSeed ?? 0} size={68} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="gt-h1" style={{ fontSize: 24, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{profile.name || t('settings.noName')}</div>
+            <div className="gt-micro" style={{ marginTop: 2 }}>{t('settings.tapToEdit')}</div>
           </div>
-        } />
-        <div style={{ padding: '14px 0' }}>
-          {confirmArchive ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-              <div className="gt-sub" style={{ lineHeight: 1.5 }}>{t('settings.archiveConfirm')}</div>
-              <div style={{ display: 'flex', gap: 9 }}>
-                <button className="gt-btn gt-btn-ghost" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={() => setConfirmArchive(false)}>{t('common.cancel')}</button>
-                <button className="gt-btn gt-btn-primary" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={async () => { await store.archiveAndStartNew(); setConfirmArchive(false); }}>{t('common.confirm')}</button>
+          <div style={{ color: 'var(--text-3)' }}><GIcon name="chevR" size={16} /></div>
+        </button>
+        <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+          {[['weight', t('settings.weight'), profile.bodyweightKg, 'kg'], ['height', t('settings.height'), profile.heightCm, 'cm']].map(([kind, label, value, unit]) => (
+            <div key={kind} role="button" tabIndex={0} className="gt-card" aria-label={t('settings.editMeasure', { label })}
+              onClick={() => setMeasure({ kind, text: String(value ?? '') })}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setMeasure({ kind, text: String(value ?? '') }); } }}
+              style={{ flex: 1, padding: '11px 14px', borderRadius: 18, textAlign: 'left', cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}>
+              <div className="gt-label" style={{ fontSize: 10.5 }}>{label}</div>
+              <div style={{ marginTop: 4, display: 'flex', alignItems: 'baseline', gap: 5 }}>
+                <span className="gt-display" style={{ fontSize: 28, lineHeight: 1 }}>{value ?? '—'}</span>
+                <span className="gt-sub">{unit}</span>
               </div>
             </div>
-          ) : (
-            <button className="gt-btn gt-btn-ghost" style={{ width: '100%', minHeight: 46, fontSize: 13.5 }} onClick={() => setConfirmArchive(true)}>{t('settings.archiveButton')}</button>
-          )}
+          ))}
         </div>
       </div>
 
-      <SectionHead>{t('settings.history')}</SectionHead>
-      <div className="gt-card" style={{ padding: '4px 16px' }}>
-        <SettingRow label={t('settings.sessionHistory')} sub={t('settings.sessionHistorySub')} ariaLabel={t('settings.openHistory')} onClick={() => setShowHistory(true)} right={<div style={{ color: 'var(--text-3)' }}><GIcon name="chevR" size={16} /></div>} />
-      </div>
-
-      <SectionHead>{t('settings.profile')}</SectionHead>
-      <div className="gt-card" style={{ padding: '4px 16px' }}>
-        <SettingRow label={t('settings.age')} right={<Stepper label={t('settings.age')} value={profile.age} step={1} min={10} width={120} onChange={(v) => store.updateProfile({ age: v })} />} />
-        <SettingRow label={t('settings.bodyWeight')} sub={t('settings.bodyWeightSub')} right={<Stepper label={t('settings.bodyWeight')} value={profile.bodyweightKg} step={0.5} min={30} width={134} onChange={(v) => store.updateProfile({ bodyweightKg: v })} format={(v) => v + ' kg'} />} />
-      </div>
-
-      <SectionHead>{t('settings.appearance')}</SectionHead>
+      {/* ---- Mesocycle ---- */}
+      <SectionHead big>{t('settings.mesocycle')}</SectionHead>
       <div className="gt-card" style={{ padding: '4px 16px 16px' }}>
+        <SettingRow label={t('settings.startDate')} right={<div className="gt-num" style={{ fontSize: 15 }}>{period ? date(period.startDate) : '—'}</div>} />
+        <SettingRow label={t('settings.endDate')} right={<div className="gt-num" style={{ fontSize: 15 }}>{endISO ? date(endISO) : '—'}</div>} />
+        <div style={{ padding: '13px 2px', borderBottom: '1px solid var(--border)' }}>
+          <div className="gt-body" style={{ fontWeight: 700 }}>{t('settings.cycles')}</div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            {[4, 6, 8].map((c) => <button key={c} className={'gt-chip' + ((period?.cycleGoal || 6) === c ? ' on' : '')} style={{ flex: 1 }} aria-pressed={(period?.cycleGoal || 6) === c} onClick={() => store.updatePeriod({ cycleGoal: c })}>{c}</button>)}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+          {[[t('settings.currentCycle'), period ? (period.cycle ?? 1) : '—'], [t('settings.daysLeft'), daysLeft ?? '—']].map(([label, value]) => (
+            <div key={label} className="gt-card" style={{ flex: 1, padding: '11px 14px', borderRadius: 18 }}>
+              <div className="gt-label" style={{ fontSize: 10.5 }}>{label}</div>
+              <div className="gt-display" style={{ fontSize: 28, lineHeight: 1.1, marginTop: 4 }}>{value}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ marginTop: 16 }}>
+          <ConfirmButton label={t('settings.archiveButton')} confirmText={t('settings.archiveConfirm')} className={endBtn} t={t}
+            open={confirmArchive} setOpen={setConfirmArchive} onConfirm={async () => { await store.archiveAndStartNew(); }} />
+        </div>
+      </div>
+
+      {/* ---- Themes ---- */}
+      <SectionHead big>{t('settings.themes')}</SectionHead>
+      <div className="gt-card" style={{ padding: '4px 16px' }}>
         <SettingRow label={t('settings.theme')} right={
           <div style={{ display: 'flex', gap: 5 }}>
             {['dark', 'light'].map((mode) => <button key={mode} className={'gt-chip' + (profile.theme === mode ? ' on' : '')} aria-pressed={profile.theme === mode} onClick={() => store.updateProfile({ theme: mode })}>{t('settings.theme.' + mode)}</button>)}
           </div>
         } />
-        <div className="gt-micro" style={{ margin: '14px 0 10px 2px' }}>{t('settings.accentCaps')}</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(44px, 1fr))', gap: 9 }}>
-          {ACCENTS.map((c) => {
-            const on = !mono && (profile.accent || ACCENTS[0]).toLowerCase() === c.toLowerCase();
-            return <button key={c} title={c} aria-label={t('settings.accentAria', { color: c })} aria-pressed={on} onClick={() => store.updateProfile({ accent: c })}
-              style={{ width: '100%', aspectRatio: '1', borderRadius: 999, cursor: 'pointer', padding: 0, background: c, border: '3px solid ' + (on ? 'var(--text)' : 'transparent'), WebkitTapHighlightColor: 'transparent' }} />;
-          })}
-        </div>
-        {/* Mono isn't a hue — it repaints the whole app (medals and charts included) in
-            black & white, so it gets its own slot instead of a 17th dot. */}
-        <div className="gt-micro" style={{ margin: '18px 0 10px 2px' }}>{t('settings.specialCaps')}</div>
-        <button aria-label={t('settings.monoAria')} aria-pressed={mono} onClick={() => store.updateProfile({ accent: mono ? ACCENTS[0] : 'mono' })}
-          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '11px 13px', borderRadius: 16, cursor: 'pointer', font: 'inherit', color: 'inherit', textAlign: 'left', background: mono ? 'var(--accent-soft)' : 'var(--input-bg)', border: '1px solid ' + (mono ? 'var(--accent)' : 'var(--border)'), WebkitTapHighlightColor: 'transparent' }}>
-          <span style={{ width: 30, height: 30, borderRadius: 999, flexShrink: 0, background: 'linear-gradient(135deg, #FFFFFF 0 50%, #101114 50% 100%)', border: '2px solid ' + (mono ? 'var(--text)' : 'var(--border-strong)') }} />
-          <span style={{ flex: 1, minWidth: 0 }}>
-            <span className="gt-body" style={{ fontWeight: 800, display: 'block' }}>{t('settings.mono')}</span>
-            <span className="gt-micro">{t('settings.monoSub')}</span>
-          </span>
-          {mono ? <GIcon name="check" size={17} style={{ color: 'var(--accent)' }} /> : null}
-        </button>
+        <SettingRow label={t('settings.rings')} sub={t('settings.ringsSub')} right={
+          <div style={{ display: 'flex', gap: 5 }}>
+            {[['on', true], ['off', false]].map(([l, v]) => (
+              <button key={l} className={'gt-chip' + ((profile.rings !== false) === v ? ' on' : '')} aria-label={t('settings.ringsAria', { state: t('settings.' + l) })} aria-pressed={(profile.rings !== false) === v}
+                onClick={() => store.updateProfile({ rings: v })}>{t('settings.' + l)}</button>
+            ))}
+          </div>
+        } />
+        <SettingRow label={t('settings.colors')} sub={mono ? t('settings.mono') : special ? t('settings.special.' + special) : accentHex.toUpperCase()} ariaLabel={t('settings.openColors')} onClick={() => setColorSheet(true)} right={<>
+          <span style={{ width: 26, height: 26, borderRadius: 999, background: mono ? 'linear-gradient(135deg, #FFFFFF 0 50%, #101114 50% 100%)' : special ? 'var(--accent-bg)' : accentHex, border: '2px solid var(--border-strong)' }} />
+          <div style={{ color: 'var(--text-3)' }}><GIcon name="chevR" size={16} /></div>
+        </>} />
       </div>
 
-      <SectionHead>{t('settings.training')}</SectionHead>
+      {/* ---- Training ---- */}
+      <SectionHead big>{t('settings.training')}</SectionHead>
       <div className="gt-card" style={{ padding: '4px 16px' }}>
+        <SettingRow label={t('settings.routine')} right={<button className="gt-chip on" onClick={() => setShowRoutine(true)}>{t('settings.editRoutine')}</button>} />
         <SettingRow label={t('settings.autoFinish')} sub={t('settings.autoFinishSub', { n: AUTO_FINISH_MIN_SETS })} right={
           <div style={{ display: 'flex', gap: 5 }}>
             {[['on', true], ['off', false]].map(([l, v]) => (
@@ -174,9 +226,43 @@ export default function SettingsScreen({ onSetup, setupOpening = false } = {}) {
             ))}
           </div>
         } />
+        <SettingRow label={t('settings.libraryRow')} sub={t('settings.librarySub')} ariaLabel={t('settings.openLibrary')} onClick={() => setShowLibrary(true)} right={<div style={{ color: 'var(--text-3)' }}><GIcon name="chevR" size={16} /></div>} />
       </div>
 
-      <SectionHead>{t('settings.routine')}</SectionHead>
+      {/* ---- Data ---- */}
+      <SectionHead big>{t('settings.data')}</SectionHead>
+      <div className="gt-card" style={{ padding: '4px 16px' }}>
+        <SettingRow label={t('settings.sessionHistory')} sub={t('settings.sessionHistorySub')} ariaLabel={t('settings.openHistory')} onClick={() => setShowHistory(true)} right={<div style={{ color: 'var(--text-3)' }}><GIcon name="chevR" size={16} /></div>} />
+        <SettingRow label={t('settings.medalThresholds')} sub={t('settings.medalThresholdsSub')} onClick={() => setMedalSheet(true)} right={<div style={{ color: 'var(--text-3)' }}><GIcon name="chevR" size={16} /></div>} />
+        <div style={{ padding: '14px 0 12px' }}>
+          <div style={{ display: 'flex', gap: 9 }}>
+            <button className="gt-btn gt-btn-ghost" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={() => exportJSON()}><GIcon name="download" size={16} />{t('settings.jsonBackup')}</button>
+            <button className="gt-btn gt-btn-ghost" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={() => exportXLSX()}><GIcon name="download" size={16} />{t('settings.excel')}</button>
+            <button className="gt-btn gt-btn-ghost" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={() => fileRef.current?.click()}><GIcon name="upload" size={16} />{t('settings.import')}</button>
+          </div>
+          <input ref={fileRef} type="file" accept=".json,.xlsx,.xls,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style={{ display: 'none' }} onChange={onImportFile} />
+          {importMsg ? <div className="gt-sub" style={{ marginTop: 10, color: importMsg.includes('✓') ? 'var(--success)' : importMsg.includes('…') ? 'var(--text-2)' : 'var(--accent)' }}>{importMsg}</div> : null}
+        </div>
+      </div>
+      {/* ---- Change routine (last on purpose: it reopens the whole setup) ---- */}
+      {onSetup ? (<>
+        <SectionHead big>{t('settings.routineGroup')}</SectionHead>
+        <div className="gt-card" style={{ padding: 16 }}>
+          <ConfirmButton label={setupOpening ? t('settings.setupOpening') : t('settings.changeRoutine')} confirmText={t('settings.changeRoutineConfirm')}
+            className={endBtn} t={t} disabled={setupOpening} open={confirmRoutine} setOpen={setConfirmRoutine} onConfirm={async () => { await onSetup(); }} />
+        </div>
+      </>) : null}
+
+      <div className="gt-micro" style={{ textAlign: 'center', marginTop: 18 }}>GymTrack {typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev'}</div>
+
+      {/* Routine — full-screen sub-page */}
+      {showRoutine && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 55, background: 'var(--bg-grad), var(--bg)', animation: 'gt-fade 0.2s ease' }}>
+          <div className="gt-scroll" style={{ height: '100%', maxWidth: 520, margin: '0 auto', padding: 'calc(18px + env(safe-area-inset-top)) 16px 60px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+              <button className="gt-iconbtn" style={{ width: 38, height: 38, minWidth: 38 }} onClick={() => setShowRoutine(false)} aria-label={t('settings.backToSettings')}><GIcon name="chevL" size={17} /></button>
+              <h1 className="gt-h1" style={{ fontSize: 26 }}>{t('settings.routine')}</h1>
+            </div>
       <div className="gt-card" style={{ padding: '14px 16px' }}>
         <div className="gt-scroll" style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
           {variants.map((v) => (
@@ -220,23 +306,78 @@ export default function SettingsScreen({ onSetup, setupOpening = false } = {}) {
         </div>
       </div>
 
-      <SectionHead>{t('settings.medals')}</SectionHead>
-      <div className="gt-card" style={{ padding: '4px 16px' }}>
-        <SettingRow label={t('settings.medalThresholds')} sub={t('settings.medalThresholdsSub')} onClick={() => setMedalSheet(true)} right={<div style={{ color: 'var(--text-3)' }}><GIcon name="chevR" size={16} /></div>} />
-      </div>
-
-      <SectionHead>{t('settings.data')}</SectionHead>
-      <div className="gt-card" style={{ padding: '14px 16px' }}>
-        <div className="gt-sub" style={{ lineHeight: 1.5 }}>{t('settings.dataBody')}</div>
-        <div style={{ display: 'flex', gap: 9, marginTop: 13 }}>
-          <button className="gt-btn gt-btn-ghost" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={() => exportJSON()}><GIcon name="download" size={16} />{t('settings.jsonBackup')}</button>
-          <button className="gt-btn gt-btn-ghost" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={() => exportXLSX()}><GIcon name="download" size={16} />{t('settings.excel')}</button>
-          <button className="gt-btn gt-btn-ghost" style={{ flex: 1, minHeight: 46, fontSize: 13.5 }} onClick={() => fileRef.current?.click()}><GIcon name="upload" size={16} />{t('settings.import')}</button>
+          </div>
         </div>
-        <input ref={fileRef} type="file" accept=".json,.xlsx,.xls,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style={{ display: 'none' }} onChange={onImportFile} />
-        {importMsg ? <div className="gt-sub" style={{ marginTop: 10, color: importMsg.includes('✓') ? 'var(--success)' : importMsg.includes('…') ? 'var(--text-2)' : 'var(--accent)' }}>{importMsg}</div> : null}
-      </div>
-      <div className="gt-micro" style={{ textAlign: 'center', marginTop: 18 }}>GymTrack {typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev'}</div>
+      )}
+
+      {/* Profile: photo, name, age */}
+      <Sheet open={!!profileSheet} onClose={() => setProfileSheet(null)} title={t('settings.editProfile')}>
+        {profileSheet ? (<>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <Avatar photo={profile.photo} seed={profile.avatarSeed ?? 0} size={72} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button className="gt-chip on" onClick={() => photoRef.current?.click()}>{profile.photo ? t('settings.photoChange') : t('settings.photoAdd')}</button>
+              {profile.photo ? <button className="gt-chip" onClick={() => store.updateProfile({ photo: null })}>{t('settings.photoRemove')}</button> : null}
+            </div>
+            <input ref={photoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onPhoto} />
+          </div>
+          <div className="gt-micro" style={{ margin: '16px 0 5px 4px' }}>{t('settings.nameLabel')}</div>
+          <input className="gt-input" aria-label={t('settings.name')} value={profileSheet.name} onChange={(e) => setProfileSheet({ ...profileSheet, name: e.target.value })} />
+          <div className="gt-micro" style={{ margin: '14px 0 5px 4px' }}>{t('settings.age').toUpperCase()}</div>
+          <input className="gt-input" inputMode="numeric" aria-label={t('settings.age')} value={profileSheet.age} onChange={(e) => setProfileSheet({ ...profileSheet, age: e.target.value.replace(/\D/g, '').slice(0, 3) })} />
+          <button className="gt-btn gt-btn-primary" style={{ width: '100%', marginTop: 18 }} onClick={async () => {
+            const patch = {};
+            if (profileSheet.name.trim()) patch.name = profileSheet.name.trim();
+            const age = parseInt(profileSheet.age, 10);
+            if (age >= 10) patch.age = age;
+            if (Object.keys(patch).length) await store.updateProfile(patch);
+            setProfileSheet(null);
+          }}>{t('common.save')}</button>
+        </>) : null}
+      </Sheet>
+
+      {/* Weight / height */}
+      <Sheet open={!!measure} onClose={() => setMeasure(null)} title={measure ? t(measure.kind === 'weight' ? 'settings.weight' : 'settings.height') : ''}>
+        {measure ? (<>
+          <input className="gt-input" autoFocus inputMode="decimal" aria-label={t(measure.kind === 'weight' ? 'settings.weight' : 'settings.height')}
+            value={measure.text} onChange={(e) => setMeasure({ ...measure, text: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') saveMeasure(); }} />
+          <div className="gt-micro" style={{ margin: '6px 0 0 4px' }}>{measure.kind === 'weight' ? 'kg' : 'cm'}</div>
+          <button className="gt-btn gt-btn-primary" style={{ width: '100%', marginTop: 18 }} onClick={saveMeasure}>{t('common.save')}</button>
+        </>) : null}
+      </Sheet>
+
+      {/* Colors: picker, presets, special themes */}
+      <Sheet open={colorSheet} onClose={() => setColorSheet(false)} title={t('settings.colors')}>
+        <ColorPicker value={mono || special ? ACCENTS[0] : accentHex} onCommit={(hex) => store.updateProfile({ accent: hex })} hexLabel="HEX" />
+        <div className="gt-label" style={{ margin: '20px 2px 10px' }}>{t('settings.defaultColors')}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(44px, 1fr))', gap: 9 }}>
+          {ACCENTS.map((c) => {
+            const on = !mono && !special && accentHex === c.toLowerCase();
+            return <button key={c} title={c} aria-label={t('settings.accentAria', { color: c })} aria-pressed={on} onClick={() => store.updateProfile({ accent: c })}
+              style={{ width: '100%', aspectRatio: '1', borderRadius: 999, cursor: 'pointer', padding: 0, background: c, border: '3px solid ' + (on ? 'var(--text)' : 'transparent'), WebkitTapHighlightColor: 'transparent' }} />;
+          })}
+        </div>
+        {/* Mono isn't a hue — it repaints the whole app in black & white, so it lives under special colors
+            together with any future themes. */}
+        <div className="gt-label" style={{ margin: '20px 2px 10px' }}>{t('settings.specialColors')}</div>
+        <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {[['mono', t('settings.mono'), t('settings.monoAria')], ...['silver', 'gold', 'platinum', 'nebula', 'nebula-fill'].map((k) => [k, t('settings.special.' + k), t('settings.specialAria', { name: t('settings.special.' + k) })])].map(([key, label, aria]) => {
+              const on = profile.accent === key;
+              return <button key={key} className={'gt-chip' + (on ? ' on' : '')} aria-label={aria} aria-pressed={on} onClick={() => store.updateProfile({ accent: on ? ACCENTS[0] : key })}>{label}</button>;
+            })}
+          </div>
+        </div>
+      </Sheet>
+
+      {/* Library — full-screen sub-page: exercises by muscle */}
+      {showLibrary && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 55, background: 'var(--bg-grad), var(--bg)', animation: 'gt-fade 0.2s ease' }}>
+          <div style={{ height: '100%', maxWidth: 520, margin: '0 auto', paddingTop: 'env(safe-area-inset-top)' }}>
+            <LibraryScreen onBack={() => setShowLibrary(false)} />
+          </div>
+        </div>
+      )}
 
       {/* History — full-screen sub-page (was its own bottom tab before v2) */}
       {showHistory && (

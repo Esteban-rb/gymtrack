@@ -139,7 +139,8 @@ describe('App setup gate and invitation', () => {
     localStorage.setItem('gymtrack_tab', 'settings');
     await mount();
     await waitFor(() => expect(host.textContent).toContain('Settings'));
-    await click('Set up or change routine');
+    await click('Change routine');
+    await click('Confirm');
     await waitFor(() => expect(host.querySelector('main[aria-label="Setup wizard"]')).toBeTruthy());
     expect(host.querySelector('#setup-profile-name').value).toBe(profile.name);
     const beforeCancel = await snapshot();
@@ -177,13 +178,15 @@ describe('App setup gate and invitation', () => {
     const originalPut = db.profile.put.bind(db.profile);
     db.profile.put = async () => { throw new Error('injected reopen write failure'); };
     try {
-      await click('Set up or change routine');
+      await click('Change routine');
+    await click('Confirm');
       await waitFor(() => expect(host.querySelector('[role="alert"]')?.textContent).toContain('injected reopen write failure'));
       expect(host.querySelector('main[aria-label="Setup wizard"]')).toBeNull();
       expect(host.querySelector('button[aria-label="Settings"]')).toBeTruthy();
       expect(await snapshot()).toEqual(before);
     } finally { db.profile.put = originalPut; }
-    await click('Set up or change routine');
+    await click('Change routine');
+    await click('Confirm');
     await waitFor(() => expect(host.querySelector('main[aria-label="Setup wizard"]')).toBeTruthy());
     expect(useStore.getState().setupStatus).toBe('invite-existing');
   });
@@ -233,8 +236,9 @@ describe('App setup gate and invitation', () => {
       await click('Continue without routine');
       await waitFor(() => expect(host.querySelector('button[aria-label="Settings"]')).toBeTruthy());
       await click('Settings');
-      await waitFor(() => expect(host.textContent).toContain('Set up or change routine'));
-      await click('Set up or change routine');
+      await waitFor(() => expect(host.textContent).toContain('Change routine'));
+      await click('Change routine');
+    await click('Confirm');
       await waitFor(() => expect(host.querySelector('main[aria-label="Setup wizard"]')).toBeTruthy());
       expect(host.textContent).not.toContain('Skip for now');
       await click('Close');

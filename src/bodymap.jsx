@@ -11,11 +11,11 @@ import { FRENTE, ESPALDA, SILUETA_FRENTE, SILUETA_ESPALDA, VIEWBOX_FRENTE, VIEWB
 // Tier vars, not literal hexes: the shapes carry their opacity in the `opacity`
 // attribute, so a theme (e.g. the Mono accent) can restyle the whole map by
 // redefining the tokens.
-export const MEDAL_HEX = ['var(--bronze)', 'var(--silver)', 'var(--gold)', 'var(--platinum)', 'var(--diamond)'];
+export const MEDAL_HEX = ['var(--bronze)', 'var(--silver)', 'var(--gold)', 'var(--platinum)', 'var(--diamond)', 'var(--obsidian)'];
 
 function fillFor(group, levels) {
   if (!group || levels[group] == null) return 'var(--chart-muted)';
-  return MEDAL_HEX[Math.max(0, Math.min(4, Math.round(levels[group])))];
+  return MEDAL_HEX[Math.max(0, Math.min(5, Math.round(levels[group])))];
 }
 
 function Figure({ shapes, outline, viewBox, levels, label }) {
@@ -53,6 +53,40 @@ export default function BodyMap({ levels }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/* ---------- Selector: same figures, but muscles are tappable and one can be highlighted ---------- */
+function PickFigure({ shapes, outline, viewBox, selected, onSelect, label, maxWidth }) {
+  const { t } = useT();
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+      <svg viewBox={viewBox} style={{ width: '100%', maxWidth, display: 'block' }} aria-label={t('bodymap.aria', { label })}>
+        <path d={outline} fill="var(--input-bg)" stroke="var(--chart-muted)" strokeWidth="2" strokeLinejoin="round" />
+        {shapes.map((s, i) => {
+          const on = s.g && s.g === selected;
+          return (
+            <path key={i} d={s.d}
+              fill={!s.g ? 'var(--chart-muted)' : on ? 'var(--accent)' : 'var(--chart-4)'}
+              opacity={!s.g ? 0.35 : on ? 1 : selected ? 0.55 : 0.85}
+              style={{ cursor: s.g && onSelect ? 'pointer' : 'default', transition: 'opacity 0.2s ease, fill 0.2s ease' }}
+              onClick={s.g && onSelect ? () => onSelect(s.g) : undefined} />
+          );
+        })}
+      </svg>
+      <div className="gt-micro">{label.toUpperCase()}</div>
+    </div>
+  );
+}
+
+/** selected: muscle group to highlight · onSelect(group): makes the muscles tappable. */
+export function MuscleMap({ selected = null, onSelect, maxWidth = 150 }) {
+  const { t } = useT();
+  return (
+    <div style={{ display: 'flex', gap: 18, justifyContent: 'center' }}>
+      <PickFigure shapes={FRENTE} outline={SILUETA_FRENTE} viewBox={VIEWBOX_FRENTE} selected={selected} onSelect={onSelect} label={t('bodymap.front')} maxWidth={maxWidth} />
+      <PickFigure shapes={ESPALDA} outline={SILUETA_ESPALDA} viewBox={VIEWBOX_ESPALDA} selected={selected} onSelect={onSelect} label={t('bodymap.back')} maxWidth={maxWidth} />
     </div>
   );
 }

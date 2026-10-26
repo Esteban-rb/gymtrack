@@ -115,15 +115,42 @@ describe('app boots and core flows work', () => {
     click('[aria-label="open streak"]');
     await waitFor(() => text().includes('CURRENT'), 'streak sheet');
     expect(text()).toContain('BEST');
-    expect(text()).toContain('Last 12 weeks');
+    expect(text()).toContain('days trained in the last year');
     // one finished session, today → a 1-day streak
     expect(text()).toContain('today is already logged');
     click('[aria-label="close Streak"]');
-    await waitFor(() => !text().includes('Last 12 weeks'), 'streak sheet closes');
+    await waitFor(() => !text().includes('days trained in the last year'), 'streak sheet closes');
+  });
 
-    // the settings button on the header jumps to the Settings tab
-    click('[aria-label="open settings"]');
-    await waitFor(() => text().includes('Mesocycle'), 'Settings from Home');
+  it('Library: browse exercises by muscle, search, and add a new one', async () => {
+    click('[aria-label="Settings"]');
+    await waitFor(() => text().includes('Exercise library'), 'Settings library row');
+    click('[aria-label="Open exercise library"]');
+    await waitFor(() => text().includes('Pick a muscle'), 'Library opens');
+    expect(text()).toContain('Chest');
+    // search jumps to the muscle that owns the exercise
+    const input = document.querySelector('input[type="search"]');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'bench');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await waitFor(() => text().includes('Bench Press'), 'search hit');
+    const hit = [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Bench Press'));
+    await act(async () => { hit.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    await waitFor(() => text().includes('Add exercise') && text().includes('Bench Press'), 'Chest detail');
+    // add a new exercise to this muscle
+    const add = [...document.querySelectorAll('button')].filter((b) => b.textContent.trim() === 'Add exercise').pop();
+    await act(async () => { add.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    const dialog = [...document.querySelectorAll('[role="dialog"]')].find((d) => d.textContent.includes('New Chest exercise'));
+    const name = dialog.querySelector('input');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(name, 'Cable Crossover');
+      name.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const save = [...dialog.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Add exercise');
+    await act(async () => { save.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    await waitFor(() => text().includes('Cable Crossover'), 'new exercise listed');
+    expect(useStore.getState().exercises.find((e) => e.name === 'Cable Crossover')?.muscle).toBe('Chest');
   });
 
   it('auto-finishes a session once every exercise has 2 sets', async () => {

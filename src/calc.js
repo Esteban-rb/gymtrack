@@ -4,7 +4,7 @@
 export const KG_PER_LB = 0.45359237;
 export const KG_PER_PLATE = 40; // 1 plate = 20 kg per side = 40 kg total
 export const BASE_UNITS = ['kg', 'lb', 'plates'];
-export const MEDALS = ['Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond'];
+export const MEDALS = ['Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond', 'Obsidian'];
 export const DAY_KEYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 // Upper/Lower rotation: fixed order of the 6 session variants. One full pass = 1 cycle.
 export const VARIANT_KEYS = ['U1', 'L1', 'U2', 'L2', 'U3', 'L3'];
@@ -64,10 +64,16 @@ export function setTonnage(set) {
 /* ---------------- Medals ---------------- */
 
 // Progression milestones for non-standard exercises: % gain over first-ever record.
-export const PROGRESSION_STEPS = [0, 0.05, 0.10, 0.175, 0.25];
+export const PROGRESSION_STEPS = [0, 0.05, 0.10, 0.175, 0.25, 0.35];
 
 /** Medal level for a basic lift: est. 1RM vs bodyweight-multiple thresholds.
- *  ratios = [bronze..diamond] as multiples of bodyweight. Returns -1..4. */
+ *  ratios = [bronze..obsidian] as multiples of bodyweight. Returns -1..5. */
+/** Thresholds saved before Obsidian existed have 5 entries; add a 6th (20% above Diamond). */
+export function withObsidian(standards) {
+  if (!Array.isArray(standards) || standards.length !== 5) return standards;
+  return [...standards, Math.round(standards[4] * 1.2 * 20) / 20];
+}
+
 export function medalForStandards(oneRm, bodyweightKg, ratios) {
   if (!oneRm || !bodyweightKg || !ratios) return -1;
   let lvl = -1;
@@ -76,7 +82,7 @@ export function medalForStandards(oneRm, bodyweightKg, ratios) {
 }
 
 /** Medal level for an isolation exercise: % improvement of best realKg over the baseline
- *  (the first set ever logged). Returns -1 if never trained, else 0..4. */
+ *  (the first set ever logged). Returns -1 if never trained, else 0..5. */
 export function medalForProgression(bestKg, baselineKg) {
   if (bestKg == null) return -1;
   if (!baselineKg) return 0;

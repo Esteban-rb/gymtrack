@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildLogs, dayPRs, dayVolume, entryForWorkout, historySlots, lastSetsBeforeByExercise, workoutsDone } from './metrics.js';
+import { muscleSetCounts, buildLogs, dayPRs, dayVolume, entryForWorkout, historySlots, lastSetsBeforeByExercise, workoutsDone } from './metrics.js';
 
 const workout = (id, date) => ({
   id,
@@ -88,5 +88,16 @@ describe('previous-session index', () => {
 
     expect(index.bench).toMatchObject({ date: '2026-08-04', workoutId: 1 });
     expect(index.bench.sets[0].realKg).toBe(50);
+  });
+});
+
+describe('muscleSetCounts', () => {
+  it('counts sets only (ignores load) and lists untrained muscles at 0', () => {
+    const exMap = { bench: { muscle: 'Chest' }, squat: { muscle: 'Quads' } };
+    const logs = { 1: { U1: { exercises: [
+      { id: 'bench', sets: [{ realKg: 100, reps: 5 }, { realKg: 1, reps: 1 }, { realKg: 50, reps: 8 }] },
+    ] } } };
+    const out = Object.fromEntries(muscleSetCounts(logs, exMap, ['Chest', 'Quads']).map((r) => [r.muscle, r.sets]));
+    expect(out).toEqual({ Chest: 3, Quads: 0 });
   });
 });

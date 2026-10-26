@@ -445,7 +445,7 @@ export default function TodayScreen({ pinnedSession, onReturn } = {}) {
           {variants.map((v) => {
             const done = doneSet.has(v.code);
             const isActive = v.code === activeCode && !done;
-            return <div key={v.code} title={v.code} style={{ flex: 1, height: 7, borderRadius: 999, background: done ? 'var(--accent)' : 'var(--input-bg)', boxShadow: isActive ? 'inset 0 0 0 1.5px var(--accent)' : undefined }} />;
+            return <div key={v.code} title={v.code} style={{ flex: 1, height: 7, borderRadius: 999, background: done ? 'var(--fill)' : isActive ? 'linear-gradient(var(--input-bg), var(--input-bg)) padding-box, var(--fill) border-box' : 'var(--input-bg)', border: isActive ? '1.5px solid transparent' : undefined }} />;
           })}
         </div>
       </div> : null}
@@ -461,7 +461,7 @@ export default function TodayScreen({ pinnedSession, onReturn } = {}) {
       {(finished || past) && workout && (
         <div className="gt-card" style={{ padding: '16px', marginBottom: 12, borderColor: past ? 'var(--border-strong)' : 'var(--success)', background: past ? undefined : 'var(--success-soft)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ width: 34, height: 34, borderRadius: 99, flexShrink: 0, background: past ? 'var(--surface-2)' : 'var(--success)', color: past ? 'var(--text-2)' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ width: 34, height: 34, borderRadius: 99, flexShrink: 0, background: past ? 'var(--surface-2)' : 'var(--success)', color: past ? 'var(--text-2)' : 'var(--paper)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <GIcon name={past ? 'calendar' : 'check'} size={18} stroke={2.6} />
             </div>
             <div style={{ minWidth: 0 }}>

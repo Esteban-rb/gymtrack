@@ -75,21 +75,22 @@ describe('app in Spanish', () => {
     await tab('Métricas', 'Aún no hay datos');
     expectClean('metrics empty');
     await tab('Récords', 'Las medallas te esperan');
-    expect(text()).toContain('Bronce → Diamante');
+    expect(text()).toContain('Bronce → Obsidiana');
     expectClean('records empty');
     await tab('Ajustes', 'Fecha de inicio');
-    for (const label of ['Meta de ciclos', 'Apariencia', 'Tema', 'COLOR DE ACENTO', 'Auto-finalizar', 'Umbrales de medallas', 'Datos', 'Copia JSON', 'Importar', 'Historial de sesiones']) {
+    for (const label of ['Perfil', 'Ciclos', 'Terminar mesociclo', 'Temas', 'Colores', 'Modificar rutina', 'Biblioteca de ejercicios', 'Auto-finalizar', 'Umbrales de medallas', 'Datos', 'Copia JSON', 'Importar', 'Historial de sesiones']) {
       expect(text(), label).toContain(label);
     }
     expectClean('settings');
   });
 
   it('Settings confirmations, sheets and import messages are Spanish', async () => {
-    await clickButtonText('Terminar y archivar');
+    await clickButtonText('Terminar mesociclo');
     await waitFor(() => text().includes('¿Archivar el bloque'), 'archive confirm');
     expect(text()).toContain('Cancelar');
     expectClean('archive confirm');
     await clickButtonText('Cancelar');
+    await clickButtonText('Modificar rutina');
     click('[aria-label="editar Incline Press"]');
     await waitFor(() => text().includes('Editar ejercicio'), 'edit sheet');
     expect(text()).toContain('GRUPO MUSCULAR');
@@ -147,7 +148,7 @@ describe('app in Spanish', () => {
     expectClean('home data');
     click('[aria-label="abrir racha"]');
     await waitFor(() => text().includes('ACTUAL'), 'streak sheet');
-    expect(text()).toContain('Últimas 12 semanas');
+    expect(text()).toContain('días entrenados en el último año');
     expect(text()).toContain('hoy ya está registrado');
     expectClean('streak');
     click('[aria-label="cerrar Racha"]');
@@ -160,7 +161,7 @@ describe('app in Spanish', () => {
     await waitFor(() => text().includes('Registrar peso corporal'), 'body weight sheet');
     expectClean('body weight sheet');
     click('[aria-label="cerrar Registrar peso corporal"]');
-    await tab('Récords', 'Estándares de fuerza');
+    await tab('Récords', 'Por músculo');
     expectClean('records data');
     await act(async () => document.querySelector('button.gt-card').click());
     await waitFor(() => document.querySelector('[role="dialog"]'), 'record sheet');
@@ -181,7 +182,7 @@ describe('app in Spanish', () => {
     await act(async () => useStore.setState({ medalUnlock: { level: 2, exercise: { name: 'Incline Press' } } }));
     expect(text()).toContain('Oro desbloqueada');
     await act(async () => useStore.setState({ medalUnlock: null }));
-    const summary = { startDate: '2026-01-05', cyclesDone: 2, cycleGoal: 6, workouts: 12, sets: 90, volume: 54000, medals: [1, 0, 2, 0, 0], gains: [{ id: 'a', name: 'Incline Press', pct: 12, from: 40, to: 45 }] };
+    const summary = { startDate: '2026-01-05', cyclesDone: 2, cycleGoal: 6, workouts: 12, sets: 90, volume: 54000, medals: [1, 0, 2, 0, 0, 0], gains: [{ id: 'a', name: 'Incline Press', pct: 12, from: 40, to: 45 }] };
     const local = document.body.appendChild(document.createElement('div'));
     const r = createRoot(local);
     await act(async () => r.render(<I18nProvider locale="es"><PeriodFinishOverlay summary={summary} onClose={() => {}} /></I18nProvider>));

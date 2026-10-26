@@ -209,6 +209,21 @@ export function muscleAverages(logs, cycle, exMap) {
   }));
 }
 
+/** Working sets per muscle group over the whole period (sets only — no load involved).
+ *  `muscles` lists the groups that must appear even at 0. Sorted by the given order. */
+export function muscleSetCounts(logs, exMap, muscles = []) {
+  const agg = Object.fromEntries(muscles.map((m) => [m, 0]));
+  for (const w of Object.keys(logs)) {
+    for (const d of Object.keys(logs[w])) {
+      for (const ex of logs[w][d].exercises) {
+        const m = (exMap[ex.id] || {}).muscle || 'Other';
+        agg[m] = (agg[m] || 0) + ex.sets.length;
+      }
+    }
+  }
+  return Object.entries(agg).map(([muscle, sets]) => ({ muscle, sets }));
+}
+
 /** Tonnage split by muscle group over the whole period. */
 export function muscleVolumeSplit(logs, exMap) {
   const agg = {};

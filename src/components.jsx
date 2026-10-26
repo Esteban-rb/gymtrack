@@ -39,31 +39,49 @@ export function GIcon({ name, size = 22, stroke = 1.8, style }) {
 }
 
 /* ============ Medal badge — ornate emblem tiers (ring + crown + petals) ============ */
-export const MEDAL_COLORS = ['var(--bronze)', 'var(--silver)', 'var(--gold)', 'var(--platinum)', 'var(--diamond)'];
+export const MEDAL_COLORS = ['var(--bronze)', 'var(--silver)', 'var(--gold)', 'var(--platinum)', 'var(--diamond)', 'var(--obsidian)'];
 const MEDAL_TINTS = [
   { l: '#EBB585', m: '#CD8A52', d: '#955C30' },   // bronze
   { l: '#EDF2F7', m: '#C2CBD6', d: '#8E99A8' },   // silver
   { l: '#FFE08A', m: '#F5C242', d: '#C8901D' },   // gold
   { l: '#E3FAF4', m: '#AFE6DC', d: '#74BFB1' },   // platinum
   { l: '#CDEDFF', m: '#6FD2FF', d: '#3D9BD6' },   // diamond
-];
-// Same five tiers rendered in greys for the Mono accent — the ranking still reads,
-// bronze (darkest) → diamond (white), without a drop of color.
-const MONO_TINTS = [
-  { l: '#8B9098', m: '#5F646C', d: '#3C4046' },   // bronze
-  { l: '#B4B9C1', m: '#878D96', d: '#5A5F67' },   // silver
-  { l: '#E4E7EC', m: '#C6CBD3', d: '#8B9098' },   // gold
-  { l: '#F2F4F7', m: '#E2E5EA', d: '#A8ADB6' },   // platinum
-  { l: '#FFFFFF', m: '#FFFFFF', d: '#C6CBD3' },   // diamond
+  { l: '#7A6A9E', m: '#2E2745', d: '#120E1F' },   // obsidian — volcanic glass, near-black with a violet sheen
 ];
 // Ornamentation grows with tier: Bronze = ring · Silver = +crown · Gold = +wings ·
-// Platinum = +2nd petals · Diamond = full lotus + gem.
-export function MedalBadge({ level, size = 44, animate = false }) {
-  const mono = useMono();
+// Platinum = +2nd petals · Diamond = full lotus + gem · Obsidian = + outer petals, dark glass.
+/* Laurel wreath behind a medal: two mirrored branches, two leaves per node (outer + inner), leaves
+   shrinking towards the tips. Drawn in a 175 x 135 box where the medal is 100 wide. */
+function Laurel({ tint, edge }) {
+  const cx = 87.5, cy = 73.75, R = 50, N = 9;
+  const branch = [];
+  for (let i = 0; i < N; i++) {
+    const phi = (18 + (i * 122) / (N - 1)) * Math.PI / 180;
+    const x = cx - R * Math.sin(phi), y = cy + R * Math.cos(phi);
+    const tangent = Math.atan2(-Math.sin(phi), -Math.cos(phi)) * 180 / Math.PI;
+    const L = 16.5 - i * 0.85, w = L * 0.3;
+    const leaf = 'M0 0 C' + L * 0.3 + ' ' + -w + ' ' + L * 0.7 + ' ' + -w + ' ' + L + ' 0 C' + L * 0.7 + ' ' + w + ' ' + L * 0.3 + ' ' + w + ' 0 0Z';
+    for (const [k, off] of [['o', -34], ['i', 34]]) {
+      branch.push(<path key={i + k} d={leaf} transform={'translate(' + x + ' ' + y + ') rotate(' + (tangent + off) + ')'} fill={tint} stroke={edge} strokeWidth="0.5" strokeLinejoin="round" />);
+    }
+  }
+  const a0 = 18 * Math.PI / 180, a1 = 140 * Math.PI / 180;
+  const stem = 'M' + (cx - R * Math.sin(a0)) + ' ' + (cy + R * Math.cos(a0)) + ' A' + R + ' ' + R + ' 0 0 1 ' + (cx - R * Math.sin(a1)) + ' ' + (cy + R * Math.cos(a1));
+  const half = (<g><path d={stem} fill="none" stroke={edge} strokeWidth="1.6" strokeLinecap="round" />{branch}</g>);
+  return (
+    <svg viewBox="0 0 175 135" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} aria-hidden="true">
+      {half}
+      <g transform={'translate(' + cx * 2 + ' 0) scale(-1 1)'}>{half}</g>
+    </svg>
+  );
+}
+
+export function MedalBadge({ level, size = 44, animate = false, laurel = false }) {
   const locked = level < 0;
-  const t = locked ? { l: '#8A8F98', m: '#62687260', d: '#3A3E45' } : (mono ? MONO_TINTS : MEDAL_TINTS)[level];
-  const gid = 'mg' + (mono ? 'm' : '') + (locked ? 'x' : level);
-  const stroke = { stroke: locked ? 'var(--text-3)' : t.d, strokeWidth: 0.9, strokeLinejoin: 'round' };
+  const t = locked ? { l: '#8A8F98', m: '#62687260', d: '#3A3E45' } : MEDAL_TINTS[level];
+  const gid = 'mg' + (locked ? 'x' : level);
+  const edge = level >= 5 ? '#9A8AC4' : t.d; // obsidian's own dark tone would vanish on dark pages
+  const stroke = { stroke: locked ? 'var(--text-3)' : edge, strokeWidth: 0.9, strokeLinejoin: 'round' };
   const petal = (a, key, len = 1) => (
     <path key={key} d={'M32 ' + (10 - (len - 1) * 3) + ' C36 ' + (15 - (len - 1) * 2) + ' 36.5 20 32 24.5 C27.5 20 28 ' + (15 - (len - 1) * 2) + ' 32 ' + (10 - (len - 1) * 3) + ' Z'} transform={'rotate(' + a + ' 32 36)'} fill={'url(#' + gid + ')'} {...stroke} />
   );
@@ -71,9 +89,10 @@ export function MedalBadge({ level, size = 44, animate = false }) {
   if (!locked && level >= 2) petals.push(petal(-64, 'w1'), petal(64, 'w2'));
   if (!locked && level >= 3) petals.push(petal(-98, 'p1', 0.85), petal(98, 'p2', 0.85));
   if (!locked && level >= 4) petals.push(petal(-34, 'l1', 0.8), petal(34, 'l2', 0.8));
-  return (
+  if (!locked && level >= 5) petals.push(petal(-130, 'o1', 0.7), petal(130, 'o2', 0.7));
+  const badge = (
     <div style={{ width: size, height: size, position: 'relative', flexShrink: 0, animation: animate ? 'gt-pop 0.5s cubic-bezier(.2,1.4,.4,1)' : undefined }} aria-hidden="true">
-      {!locked && <div style={{ position: 'absolute', inset: '-4%', borderRadius: '50%', background: 'radial-gradient(circle, ' + t.m + ' 0%, transparent 68%)', opacity: 0.28 }} />}
+      {!locked && <div style={{ position: 'absolute', inset: '-4%', borderRadius: '50%', background: 'radial-gradient(circle, ' + (level >= 5 ? '#8B7BB8' : t.m) + ' 0%, transparent 68%)', opacity: level >= 5 ? 0.6 : 0.28 }} />}
       <svg width={size} height={size} viewBox="0 0 64 64" style={{ position: 'relative' }}>
         <defs>
           <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
@@ -88,21 +107,29 @@ export function MedalBadge({ level, size = 44, animate = false }) {
           <circle cx="26.8" cy="10.6" r="1.5" fill={t.l} {...stroke} />
           <circle cx="32" cy="8.4" r="1.6" fill={t.l} {...stroke} />
           <circle cx="37.2" cy="10.6" r="1.5" fill={t.l} {...stroke} />
-          {level >= 4 && <path d="M32 12.4 34 14.8 32 17.2 30 14.8 Z" fill="#FFFFFF" opacity="0.95" />}
+          {level >= 4 && <path d="M32 12.4 34 14.8 32 17.2 30 14.8 Z" fill="var(--paper)" opacity="0.95" />}
         </g>)}
         <circle cx="32" cy="36" r="14.5" fill="none" stroke={locked ? 'var(--border-strong)' : 'url(#' + gid + ')'} strokeWidth="6" strokeDasharray={locked ? '3.2 3.2' : 'none'} />
-        {!locked && <circle cx="32" cy="36" r="17.4" fill="none" stroke={t.d} strokeWidth="0.9" />}
-        {!locked && <circle cx="32" cy="36" r="11.6" fill="none" stroke={t.d} strokeWidth="0.9" />}
+        {!locked && <circle cx="32" cy="36" r="17.4" fill="none" stroke={edge} strokeWidth="0.9" />}
+        {!locked && <circle cx="32" cy="36" r="11.6" fill="none" stroke={edge} strokeWidth="0.9" />}
         {!locked && <path d="M25.8 48.2 Q32 53.4 38.2 48.2 L36.8 55 Q32 58 27.2 55 Z" fill={'url(#' + gid + ')'} {...stroke} />}
-        {!locked && <path d="M23.5 22.5 24.6 26 28 27 24.6 28 23.5 31.5 22.4 28 19 27 22.4 26 Z" fill="#FFFFFF" opacity="0.92" />}
+        {!locked && <path d="M23.5 22.5 24.6 26 28 27 24.6 28 23.5 31.5 22.4 28 19 27 22.4 26 Z" fill="var(--paper)" opacity="0.92" />}
         {locked && <path d="M27.5 34.5 v-2.5 a4.5 4.5 0 0 1 9 0 v2.5 M26 34.5 h12 v8.5 h-12 z" fill="none" stroke="var(--text-3)" strokeWidth="1.9" strokeLinejoin="round" strokeLinecap="round" />}
       </svg>
+    </div>
+  );
+  if (!laurel || locked) return badge;
+  const w = size * 1.75, h = size * 1.35;
+  return (
+    <div style={{ width: w, height: h, position: 'relative', flexShrink: 0 }} aria-hidden="true">
+      <Laurel tint={level >= 5 ? '#7A68AE' : t.m} edge={edge} />
+      <div style={{ position: 'absolute', left: (w - size) / 2, top: (h - size) / 2 }}>{badge}</div>
     </div>
   );
 }
 
 /* ============ Progress bar ============ */
-export function ProgressBar({ value, max, label, height = 8, color = 'var(--accent)' }) {
+export function ProgressBar({ value, max, label, height = 8, color = 'var(--fill)' }) {
   const { t } = useT();
   label = label ?? t('progress.label');
   const safeMax = Math.max(0, Number(max) || 0);
@@ -121,11 +148,13 @@ export function RingProgress({ value, max, size = 78, thickness = 5, children })
   const r = (size - thickness) / 2;
   const circ = 2 * Math.PI * r;
   const pct = max > 0 ? Math.min(1, Math.max(0, value / max)) : 0;
+  const gid = useId();
   return (
     <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
       <svg width={size} height={size} viewBox={'0 0 ' + size + ' ' + size} style={{ transform: 'rotate(-90deg)' }} aria-hidden="true">
+        <defs><linearGradient id={gid} gradientUnits="userSpaceOnUse" x1="0" y1="0" x2={size} y2={size}><stop offset="0" stopColor="var(--fx-1)" /><stop offset="0.5" stopColor="var(--fx-2)" /><stop offset="1" stopColor="var(--fx-3)" /></linearGradient></defs>
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--input-bg)" strokeWidth={thickness} />
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--accent)" strokeWidth={thickness} strokeLinecap="round"
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={'url(#' + gid + ')'} strokeWidth={thickness} strokeLinecap="round"
           strokeDasharray={circ} strokeDashoffset={circ * (1 - pct)}
           style={{ transition: 'stroke-dashoffset 0.6s cubic-bezier(.4,0,.2,1)' }} />
       </svg>
@@ -302,16 +331,17 @@ export function LineChart({ data, height = 120, valueKey = 'kg', labelKey = 'wee
     <svg role="img" aria-label={ariaLabel} viewBox={'0 0 ' + W + ' ' + (H + lblH)} style={{ width: '100%', display: 'block' }}>
       <defs>
         <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="var(--accent)" stopOpacity="0.45" />
-          <stop offset="1" stopColor="var(--accent)" stopOpacity="0" />
+          <stop offset="0" stopColor="var(--fx-2)" stopOpacity="0.45" />
+          <stop offset="1" stopColor="var(--fx-2)" stopOpacity="0" />
         </linearGradient>
+        <linearGradient id={gid + 's'} gradientUnits="userSpaceOnUse" x1="0" y1="0" x2={W} y2="0"><stop offset="0" stopColor="var(--fx-1)" /><stop offset="0.5" stopColor="var(--fx-2)" /><stop offset="1" stopColor="var(--fx-3)" /></linearGradient>
       </defs>
       {[0.25, 0.5, 0.75].map((t) => <line key={t} x1={padX} x2={W - padX} y1={padY + t * (H - padY * 2)} y2={padY + t * (H - padY * 2)} stroke="var(--chart-grid)" strokeWidth="1" />)}
       {area && data.length > 1 ? <polygon points={pts + ' ' + x(last) + ',' + base + ' ' + x(0) + ',' + base} fill={'url(#' + gid + ')'} /> : null}
-      <polyline points={pts} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points={pts} fill="none" stroke={'url(#' + gid + 's)'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
       {data.map((d, i) => (
         <g key={i}>
-          <circle cx={x(i)} cy={y(d[valueKey])} r={i === last ? 5 : dotR} fill={i === last ? 'var(--accent)' : 'var(--surface-solid)'} stroke="var(--accent)" strokeWidth={i === last || dotR > 2 ? 2 : 1.5} />
+          <circle cx={x(i)} cy={y(d[valueKey])} r={i === last ? 5 : dotR} fill={i === last ? 'var(--fx-3)' : 'var(--surface-solid)'} stroke="var(--fx-3)" strokeWidth={i === last || dotR > 2 ? 2 : 1.5} />
           {(last - i) % lblStep === 0 ? (
             <text x={clampX(x(i))} y={H + 12} textAnchor="middle" fontSize="10" fontWeight="600" fill="var(--text-3)" fontFamily="Manrope">{labels[i]}</text>
           ) : null}
@@ -339,12 +369,13 @@ export function Sparkline({ data, valueKey = 'kg', width = 70, height = 26 }) {
     <svg viewBox={'0 0 ' + W + ' ' + H} style={{ width, height, flexShrink: 0 }} aria-hidden="true">
       <defs>
         <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="var(--accent)" stopOpacity="0.45" />
-          <stop offset="1" stopColor="var(--accent)" stopOpacity="0" />
+          <stop offset="0" stopColor="var(--fx-2)" stopOpacity="0.45" />
+          <stop offset="1" stopColor="var(--fx-2)" stopOpacity="0" />
         </linearGradient>
+        <linearGradient id={gid + 's'} gradientUnits="userSpaceOnUse" x1="0" y1="0" x2={W} y2="0"><stop offset="0" stopColor="var(--fx-1)" /><stop offset="0.5" stopColor="var(--fx-2)" /><stop offset="1" stopColor="var(--fx-3)" /></linearGradient>
       </defs>
       {data.length > 1 ? <polygon points={pts + ' ' + x(data.length - 1) + ',' + (H - 2) + ' ' + x(0) + ',' + (H - 2)} fill={'url(#' + gid + ')'} /> : null}
-      <polyline points={pts} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points={pts} fill="none" stroke={'url(#' + gid + 's)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -370,6 +401,44 @@ export function Donut({ data, size = 130, thickness = 16, ariaLabel }) {
         if (frac >= 0.999) return <circle key={i} cx={C} cy={C} r={R} fill="none" stroke={DONUT_COLORS[i % DONUT_COLORS.length]} strokeWidth={thickness} />;
         return <path key={i} d={`M ${x0} ${y0} A ${R} ${R} 0 ${large} 1 ${x1} ${y1}`} fill="none" stroke={DONUT_COLORS[i % DONUT_COLORS.length]} strokeWidth={thickness} strokeLinecap="butt" />;
       })}
+    </svg>
+  );
+}
+
+/* ============ Polar (radar) chart — one spoke per category, points joined into a filled web ============ */
+export function PolarChart({ data, size = 300, ariaLabel }) {
+  const gid = useId();
+  const n = data.length;
+  if (!n) return null;
+  const C = size / 2, R = size / 2 - 52;
+  const max = Math.max(...data.map((d) => d.value), 0);
+  const ang = (i) => (i * 2 * Math.PI) / n - Math.PI / 2;
+  const pt = (r, i) => [C + r * Math.cos(ang(i)), C + r * Math.sin(ang(i))];
+  const points = data.map((d, i) => pt(max > 0 ? R * (d.value / max) : 0, i));
+  const ring = (f) => data.map((_, i) => pt(R * f, i).join(',')).join(' ');
+  return (
+    <svg role="img" aria-label={ariaLabel} viewBox={`0 0 ${size} ${size}`} style={{ width: '100%', maxWidth: 340, display: 'block', margin: '0 auto' }}>
+      {[0.25, 0.5, 0.75, 1].map((f) => (n > 2
+        ? <polygon key={f} points={ring(f)} fill="none" stroke="var(--chart-grid)" strokeWidth="1" />
+        : <circle key={f} cx={C} cy={C} r={R * f} fill="none" stroke="var(--chart-grid)" strokeWidth="1" />))}
+      {data.map((d, i) => {
+        const [x, y] = pt(R, i);
+        const [lx, ly] = pt(R + 12, i);
+        const cos = Math.cos(ang(i));
+        const anchor = Math.abs(cos) < 0.25 ? 'middle' : cos > 0 ? 'start' : 'end';
+        return (
+          <g key={d.label}>
+            <line x1={C} y1={C} x2={x} y2={y} stroke="var(--chart-grid)" strokeWidth="1" />
+            <text x={lx} y={ly} textAnchor={anchor} dominantBaseline="middle" style={{ fontSize: 10.5, fontWeight: 700, fill: 'var(--text-2)', fontFamily: 'Manrope' }}>
+              {d.label}
+              <tspan x={lx} dy="12" style={{ fontSize: 10, fontWeight: 800, fill: d.value > 0 ? 'var(--text)' : 'var(--text-3)' }}>{d.value}</tspan>
+            </text>
+          </g>
+        );
+      })}
+      <defs><linearGradient id={gid} gradientUnits="userSpaceOnUse" x1="0" y1="0" x2={size} y2={size}><stop offset="0" stopColor="var(--fx-1)" /><stop offset="0.5" stopColor="var(--fx-2)" /><stop offset="1" stopColor="var(--fx-3)" /></linearGradient></defs>
+      {max > 0 && <polygon points={points.map((p) => p.join(',')).join(' ')} fill={'url(#' + gid + ')'} fillOpacity="0.32" stroke={'url(#' + gid + ')'} strokeWidth="2" strokeLinejoin="round" />}
+      {max > 0 && points.map(([x, y], i) => <circle key={i} cx={x} cy={y} r="3.5" fill="var(--fx-2)" />)}
     </svg>
   );
 }
@@ -438,7 +507,7 @@ export function PeriodFinishOverlay({ summary, onClose }) {
           <div className="gt-label" style={{ marginTop: 6 }}>{t('finish.cyclesCompleted')}</div>
           <div style={{ display: 'flex', gap: 5, marginTop: 14 }}>
             {Array.from({ length: goal }, (_, i) => (
-              <div key={i} style={{ flex: 1, height: 8, borderRadius: 999, background: i < done ? 'var(--accent)' : 'var(--input-bg)' }} />
+              <div key={i} style={{ flex: 1, height: 8, borderRadius: 999, background: i < done ? 'var(--fill)' : 'var(--input-bg)' }} />
             ))}
           </div>
         </div>
@@ -531,15 +600,16 @@ function TabIcon({ id }) {
 export function TabBar({ tab, onChange }) {
   const { t: tr } = useT();
   return (
-    <nav aria-label={tr('tab.nav')} style={{ position: 'fixed', left: 14, right: 14, bottom: 'calc(14px + env(safe-area-inset-bottom))', zIndex: 40, display: 'flex', gap: 4, padding: 6, borderRadius: 999, background: 'var(--tabbar-bg)', border: '1px solid var(--border)', boxShadow: 'var(--tabbar-shadow)', maxWidth: 520, margin: '0 auto' }}>
+    <nav className="gt-tabbar" aria-label={tr('tab.nav')} style={{ position: 'fixed', left: 14, right: 14, bottom: 'calc(14px + env(safe-area-inset-bottom))', zIndex: 40, display: 'flex', gap: 4, padding: 6, borderRadius: 999, maxWidth: 520, margin: '0 auto' }}>
       {TABS.map((t) => {
         const on = tab === t.id;
         return (
-          <button key={t.id} onClick={() => onChange(t.id)} aria-label={tr('tab.' + t.id)} aria-current={on ? 'page' : undefined} style={{
+          <button key={t.id} className={on ? 'gt-tab-on' : undefined} onClick={() => onChange(t.id)} aria-label={tr('tab.' + t.id)} aria-current={on ? 'page' : undefined} style={{
             flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: '8px 0 6px',
-            borderRadius: 999, border: 'none', cursor: 'pointer', minHeight: 48,
-            background: on ? 'var(--accent)' : 'transparent',
-            color: on ? 'var(--on-accent)' : 'var(--text-2)', transition: 'background 0.2s ease, color 0.2s ease',
+            borderRadius: 999, border: '3px solid ' + (on ? 'var(--ring-color)' : 'transparent'), cursor: 'pointer', minHeight: 48,
+            background: on ? undefined : 'transparent',
+            boxShadow: on ? '0 0 0 var(--ring-out) var(--accent)' : 'none',
+            color: on ? 'var(--tab-on-text, var(--on-accent))' : 'var(--text-2)', transition: 'background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease',
             WebkitTapHighlightColor: 'transparent',
           }}>
             <TabIcon id={t.id} />
@@ -552,10 +622,12 @@ export function TabBar({ tab, onChange }) {
 }
 
 /* ============ Section header ============ */
-export function SectionHead({ children, right }) {
+export function SectionHead({ children, right, big = false }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '20px 2px 10px' }}>
-      <h2 className="gt-label">{children}</h2>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: big ? '28px 2px 12px' : '20px 2px 10px' }}>
+      {big
+        ? <h2 className="gt-h2" style={{ fontSize: 19, fontWeight: 800, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 9 }}><span aria-hidden="true" style={{ width: 4, height: 18, borderRadius: 2, background: 'var(--accent)' }} />{children}</h2>
+        : <h2 className="gt-label">{children}</h2>}
       {right || null}
     </div>
   );

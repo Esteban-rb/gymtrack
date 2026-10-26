@@ -3,13 +3,42 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from './store.js';
 import { useT } from './i18n.js';
 import { useShallow } from 'zustand/react/shallow';
-import { TabBar, TABS, MedalBadge, MEDAL_COLORS, PeriodFinishOverlay } from './components.jsx';
+import { TabBar, TABS, MedalBadge, MEDAL_COLORS, PeriodFinishOverlay, Sheet } from './components.jsx';
+import { CHANGELOG, appVersion, shouldShowWhatsNew, readSeenVersion, markVersionSeen } from './changelog.js';
 import HomeScreen from './screens/Home.jsx';
 import TodayScreen from './screens/Today.jsx';
 import MetricsScreen from './screens/Metrics.jsx';
 import RecordsScreen from './screens/Records.jsx';
 import SettingsScreen from './screens/Settings.jsx';
 import SetupWizard from './screens/SetupWizard.jsx';
+
+/** One-time "what's new" sheet: the first time this version opens, for people who already use the app. */
+function WhatsNew() {
+  const { t, locale } = useT();
+  const { profile, workouts } = useStore(useShallow((state) => ({ profile: state.profile, workouts: state.workouts })));
+  const version = appVersion();
+  const hasData = !!(profile?.setupComplete || workouts.length);
+  const [open, setOpen] = useState(() => import.meta.env.MODE !== 'test' && shouldShowWhatsNew({ version, seen: readSeenVersion(), hasData }));
+  useEffect(() => {
+    // a brand-new install has nothing to catch up on: remember the version without showing anything
+    if (!open && version && readSeenVersion() == null && !hasData) markVersionSeen(version);
+  }, [open, version, hasData]);
+  const close = () => { markVersionSeen(version); setOpen(false); };
+  const notes = (CHANGELOG[version] || {})[locale] || (CHANGELOG[version] || {}).en || [];
+  return (
+    <Sheet open={open} onClose={close} title={t('whatsnew.title', { version })}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {notes.map(([title, body]) => (
+          <div key={title}>
+            <div className="gt-body" style={{ fontWeight: 800 }}>{title}</div>
+            <div className="gt-sub" style={{ marginTop: 3, lineHeight: 1.5 }}>{body}</div>
+          </div>
+        ))}
+      </div>
+      <button className="gt-btn gt-btn-primary" style={{ width: '100%', marginTop: 20 }} onClick={close}>{t('whatsnew.ok')}</button>
+    </Sheet>
+  );
+}
 
 function MedalToast() {
   const { t, medal } = useT();
@@ -24,7 +53,7 @@ function MedalToast() {
   return (
     <div onClick={dismissMedal} style={{ position: 'fixed', left: 16, right: 16, top: 'calc(16px + env(safe-area-inset-top))', zIndex: 80, display: 'flex', justifyContent: 'center', animation: 'gt-slide-up 0.35s cubic-bezier(.2,1.2,.4,1)' }}>
       <div className="gt-card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 18px', maxWidth: 420, width: '100%' }}>
-        <MedalBadge level={medalUnlock.level} size={52} animate={true} />
+        <MedalBadge level={medalUnlock.level} size={44} animate={true} laurel />
         <div>
           <div className="gt-label" style={{ color: MEDAL_COLORS[medalUnlock.level] }}>{t('medal.unlocked', { medal: medal(medalUnlock.level) })}</div>
           <div className="gt-body" style={{ fontWeight: 800, marginTop: 2 }}>{medalUnlock.exercise?.name}</div>
@@ -103,8 +132,10 @@ export default function App() {
   const dark = store.profile?.theme !== 'light';
   // 'mono' is not a hue but a whole black & white system → a class, not --accent vars
   const mono = store.profile?.accent === 'mono';
+  // special themes (silver / gold / platinum) restyle the selected buttons with a gradient: also a class
+  const special = ['silver', 'gold', 'platinum', 'nebula', 'nebula-fill'].includes(store.profile?.accent) ? store.profile.accent : null;
   useEffect(() => {
-    const page = mono ? (dark ? '#08090A' : '#FFFFFF') : (dark ? '#0B0C0E' : '#F1F2F5');
+    const page = mono ? (dark ? '#000000' : '#FFFFFF') : (dark ? '#000000' : '#F1F2F5');
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', page);
     // keep the browser's own rendering in sync with the in-app theme: native controls
@@ -125,9 +156,9 @@ export default function App() {
       '--accent': accent,
       '--accent-press': `color-mix(in srgb, ${accent} 82%, #000)`,
       '--accent-soft': `rgba(${r},${g},${b},0.16)`,
-      '--on-accent': lum > 0.62 ? '#14161A' : '#FFFFFF',
+      '--on-accent': lum > 0.62 ? '#14161A' : (dark ? '#F3EFE6' : '#FFFFFF'),
     };
-  }, [accent]);
+  }, [accent, dark]);
 
   if (!store.loaded) {
     return (
@@ -143,14 +174,14 @@ export default function App() {
   const setupRequired = store.setupStatus === 'first-run-required';
   if (setupRequired || wizardOpen) {
     return (
-      <div className={'gt-app' + (dark ? '' : ' light') + (mono ? ' mono' : '')} style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', ...accentVars }}>
+      <div className={'gt-app' + (dark ? '' : ' light') + (mono ? ' mono' : '') + (special ? ' fx-' + special : '') + (store.profile?.rings === false ? ' no-rings' : '')} style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', ...accentVars }}>
         <SetupWizard onComplete={completeWizard} onClose={!setupRequired ? closeOptionalWizard : undefined} />
       </div>
     );
   }
 
   return (
-    <div className={'gt-app' + (dark ? '' : ' light') + (mono ? ' mono' : '')} style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', ...accentVars }}>
+    <div className={'gt-app' + (dark ? '' : ' light') + (mono ? ' mono' : '') + (special ? ' fx-' + special : '') + (store.profile?.rings === false ? ' no-rings' : '')} style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', ...accentVars }}>
       <div style={{ flex: 1, minHeight: 0, position: 'relative', maxWidth: 520, width: '100%', margin: '0 auto', paddingTop: 'env(safe-area-inset-top)' }}>
         {store.setupStatus === 'invite-existing' ? <section aria-label={t('invite.region')} className="gt-card" style={{ position: 'absolute', zIndex: 30, top: 12, left: 16, right: 16, padding: 14 }}>
           <h2 className="gt-h2">{t('invite.title')}</h2>
@@ -176,6 +207,7 @@ export default function App() {
         </div>
       ) : null}
       <MedalToast />
+      <WhatsNew />
       {store.periodCelebration ? <PeriodFinishOverlay summary={store.periodCelebration} onClose={store.dismissPeriodCelebration} /> : null}
     </div>
   );

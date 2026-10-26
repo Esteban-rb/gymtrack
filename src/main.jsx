@@ -24,4 +24,10 @@ const fatal = (msg) => {
 window.addEventListener('error', (e) => fatal(e.message + '\n' + (e.error?.stack || '')));
 window.addEventListener('unhandledrejection', (e) => fatal('rejection: ' + (e.reason?.stack || e.reason)));
 
-ReactDOM.createRoot(document.getElementById('root')).render(<I18nProvider locale={detectLocale()}><App /></I18nProvider>);
+const mount = () => ReactDOM.createRoot(document.getElementById('root')).render(<I18nProvider locale={detectLocale()}><App /></I18nProvider>);
+if (import.meta.env.DEV) {
+  // dev only: ?db=demo fills a throw-away database with finished cycles before the app starts
+  import('./dev-demo.js').then((m) => m.maybeSeedDemo()).catch((e) => fatal('demo seed failed: ' + (e.stack || e))).finally(mount);
+} else {
+  mount();
+}

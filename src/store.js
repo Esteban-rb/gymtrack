@@ -5,7 +5,7 @@ import { validateRoutineDraft } from './routine-draft.js';
 import { advanceIndependentSchedule, selectScheduledVariant } from './schedule.js';
 import { validateSchedule } from './schedule.js';
 import { db, ensureSeeded } from './db.js';
-import { toKg, est1RM, isoDate, parseISO, mondayOf, weekOfPeriod, dayKeyOf, medalForStandards, medalForProgression } from './calc.js';
+import { toKg, est1RM, isoDate, parseISO, mondayOf, weekOfPeriod, dayKeyOf, medalForStandards, medalForProgression, withObsidian } from './calc.js';
 import { bestSet, dayPRs, buildLogs, dayVolume, entryForWorkout, workoutsDone, cycleVolume, exerciseSeries, shouldAutoFinish } from './metrics.js';
 
 const sortByOrder = (a, b) => (a.order ?? 0) - (b.order ?? 0);
@@ -97,7 +97,7 @@ export const useStore = create((set, get) => ({
       profile,
       allPeriods,
       period: active,
-      exercises: exercises.sort(sortByOrder),
+      exercises: exercises.map((e) => (e.standards ? { ...e, standards: withObsidian(e.standards) } : e)).sort(sortByOrder),
       variants: activeVariants.sort(sortByOrder),
       allVariants: variantRows.sort(sortByOrder),
       activeVariant: active?.trainingSchedule
@@ -315,7 +315,7 @@ export const useStore = create((set, get) => ({
       if (first > 0 && best > first) gains.push({ id: e.id, name: e.name, from: first, to: best, pct: Math.round(((best - first) / first) * 100) });
     }
     gains.sort((a, b) => b.pct - a.pct);
-    const medals = [0, 0, 0, 0, 0];
+    const medals = [0, 0, 0, 0, 0, 0];
     for (const e of exercises) {
       const l = get().medalLevel(e.id);
       if (l >= 0) medals[l]++;
@@ -756,7 +756,7 @@ export const useStore = create((set, get) => ({
 
   dismissMedal: () => set({ medalUnlock: null }),
 
-  /** Current medal level for an exercise: -1 (locked) .. 4 (diamond). */
+  /** Current medal level for an exercise: -1 (locked) .. 5 (obsidian). */
   medalLevel: (exerciseId) => {
     const { prs, profile } = get();
     const ex = get().exMap()[exerciseId];
